@@ -1,45 +1,53 @@
 # Brainrot Bay
 
-[![Brainrot Bay — roblox-brainrot-01](https://make.fun/badge/roblox-brainrot-01.svg)](https://make.fun/bounty/roblox-brainrot-01)
+[![Brainrot Bay on make.fun](https://make.fun/badge/roblox-brainrot-01.svg)](https://make.fun/bounty/roblox-brainrot-01)
 [![Rank](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/rank.svg)](https://make.fun/bounty/roblox-brainrot-01)
 [![Reward](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/reward.svg)](https://make.fun/bounty/roblox-brainrot-01)
 
-Brainrot Bay is a 3D Roblox game in the Steal-a-Brainrot genre: 21 original
-meme characters walk a conveyor belt across a 220-stud sand island, and you
-click one to buy it, keep it on your colour-coded base, and watch it earn
-money every second. Rarer brainrots earn more, mutations multiply the rate,
-and a tsunami sweeps the island every three minutes — so a catch is only
-safe once you dash it home. Steal from other bases, lock yours, buy Speed
-Boots and Income Boosts, and rebirth for a permanent +25% income per level.
+A 3D Roblox game in the Steal-a-Brainrot genre, built for the
+[roblox-brainrot-01 bounty](https://make.fun/bounty/roblox-brainrot-01) on make.fun.
 
-## How to run it
+## How to play
 
-Open `game.rbxl` in Roblox Studio and press Play. To rebuild the place
-from source instead, run `rojo build` (Rojo 7.7) in this directory — it
-writes `game.rbxl` from `src/` and `default.project.json`.
+Brainrots walk in from the purple portal and along the neon conveyor.
+**Click one to buy it** — it walks to your base and earns money every second.
+Click another player's brainrot to **steal** it, but you only have 20 seconds
+to run it home, and the owner can yank it back within 40 studs.
+**Lock your base** to stop thieves. A **tsunami** sweeps the island every
+3 minutes: hide in your base or at spawn, or get splashed back.
+Spend your cash on **rebirths** (+25% income per level) and **upgrades**
+(Speed Boots, Income Boost, 3 levels each).
 
-## Layout
+## The cast
 
-- `src/shared/` — `Config.luau` (every price, rate and timing) and
-  `Catalog.luau` (the 21 characters, 7 rarities, 3 mutations).
-- `src/server/` — one module per job: `State` (the single state store),
-  `Plots` (the eight bases), `Conveyor` (spawning and walking the belt),
-  `BrainrotFactory` (building each character's model), `Economy`
-  (buying, selling, rebirths, upgrades, the income tick), `Steal`
-  (carrying a stolen brainrot home), `Events` (the tsunami) and
-  `WorldBuilder` (palms, coins, clouds, signs, slot pads), plus
-  `init.server.luau` wiring them together.
-- `src/client/` — `Game.client.luau` boots the client and `Hud.luau`
-  draws the cash bar, buttons, panels and event banner.
-- `main.ts` — the hand-in program: it copies `game.rbxl`, `src/`,
-  `screenshots/` and `PLAY.json` to the output directory and writes
-  `dossier.json` with `buildDossier` from `vendor/makefun-roblox.ts`.
-- `screenshots/` — three captures of the game running in Roblox Studio.
-- `PLAY.json` — the published place's link (filled in once the
-  experience is published on Roblox).
+21 original characters in 7 rarities — Common, Rare, Epic, Legendary,
+Mythic, Godly, Secret — earning $5/s up to $5,000/s, plus Golden (x2),
+Diamond (x4) and Rainbow (x8) mutations. The cheapest brainrot costs $125,
+and you start with $150, so your first buy is always within reach.
 
-## Entered on make.fun
+## Structure
 
-Entered on [make.fun](https://make.fun/bounty/roblox-brainrot-01) for the
-"Make the best AI Roblox brainrot game" bounty. Optional: earn referral
-rewards, a second way to make money — https://make.fun/r/dhj53q2r
+- `src/shared/` — `Config.luau` (tuning, plots, upgrades) and `Catalog.luau`
+  (the 21 characters, rarities, mutations)
+- `src/server/` — `State` (the one server store), `Plots`, `Conveyor`,
+  `BrainrotFactory`, `Economy`, `Steal`, `Events` (tsunami), `WorldBuilder`
+  (palms, coins, clouds, signs) and `init.server.luau`
+- `src/client/` — `Game.client.luau` and `Hud.luau`
+- `default.project.json` — the static island, built with Rojo (`rojo build`)
+- `main.ts` — the hand-in program: copies the game to `/output` and writes
+  `dossier.json` with the kit's `vendor/makefun-roblox.ts`
+- `game.rbxl` — the built place file, `PLAY.json` — the play link,
+  `TOUR.json` — a guided tour of the game
+
+Everything is server-authoritative: the client draws the HUD and asks,
+the server validates every buy, sell, steal, rebirth and upgrade.
+
+## Build
+
+```sh
+rojo build -o game.rbxl
+MAKEFUN_OUTPUT_DIR=out node main.ts
+```
+
+Entered on make.fun — play it at https://make.fun/bounty/roblox-brainrot-01 —
+my referral link: https://make.fun/r/dhj53q2r

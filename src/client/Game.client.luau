@@ -1,9 +1,13 @@
--- Brainrot Bay — client entrypoint.
--- The client holds no game logic on purpose: it builds the HUD and lets
--- the server's ClickDetectors do the buying, stealing and yanking. All
--- money, locks and rebirths are validated server-side; this script only
--- asks, through the remotes, and shows what the server answers.
+-- Game.client.luau
+-- Client entrypoint for Brainrot Bay (build4, written from scratch).
+-- The client only draws the HUD and asks the server; every rule lives
+-- on the server, so the client can never grant itself cash or brainrots.
 
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Hud = require(script.Parent.Hud)
 
-Hud.init()
+local player = Players.LocalPlayer
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+Hud.init(player, remotes)
