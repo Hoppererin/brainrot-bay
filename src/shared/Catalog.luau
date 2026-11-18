@@ -1,83 +1,76 @@
--- Brainrot Bay — the cast.
--- 21 original characters on a ladder of 7 rarities, $5/s to $5,000/s.
--- A brainrot's price comes from its rate: it pays for itself in about
--- 25 seconds, so the ladder is the economy. A mutation multiplies both
--- the rate and the price, and tints the body its own colour.
+-- Catalog.luau
+-- The brainrot cast for Brainrot Bay (build4, written from scratch):
+-- 21 original characters in 7 rarities, plus 3 mutations.
+-- A character entry has ONLY the fields: name, rarity, rate, body, accent,
+-- size, accessory. A rarity entry has ONLY: color, weight.
+-- A mutation entry has ONLY: name, mult, chance, color.
+
+local Config = require(script.Parent.Config)
 
 local Catalog = {}
 
--- Rarity colours and spawn weights (out of 100). Common walks the belt
--- most often; a Secret is a rare sight.
+-- Rarities, common first. `weight` is the spawn weight of the whole rarity.
 Catalog.RARITIES = {
-	Common = { color = Color3.fromRGB(205, 205, 205), weight = 40 },
-	Rare = { color = Color3.fromRGB(80, 180, 255), weight = 25 },
-	Epic = { color = Color3.fromRGB(180, 90, 255), weight = 15 },
-	Legendary = { color = Color3.fromRGB(255, 180, 40), weight = 10 },
-	Mythic = { color = Color3.fromRGB(255, 80, 180), weight = 6 },
-	Divine = { color = Color3.fromRGB(255, 230, 90), weight = 3 },
-	Secret = { color = Color3.fromRGB(120, 255, 220), weight = 1 },
+	Common = { color = Color3.fromRGB(200, 200, 200), weight = 45 },
+	Rare = { color = Color3.fromRGB(80, 140, 255), weight = 25 },
+	Epic = { color = Color3.fromRGB(170, 80, 255), weight = 14 },
+	Legendary = { color = Color3.fromRGB(255, 200, 40), weight = 8 },
+	Mythic = { color = Color3.fromRGB(255, 70, 120), weight = 4.5 },
+	Godly = { color = Color3.fromRGB(60, 230, 230), weight = 2.5 },
+	Secret = { color = Color3.fromRGB(30, 30, 30), weight = 1 },
 }
 
--- name, rarity, $/s, body colour, belly colour, head accessory, size.
+Catalog.RARITY_ORDER = { "Common", "Rare", "Epic", "Legendary", "Mythic", "Godly", "Secret" }
+
+-- 21 characters, 3 per rarity. `rate` is $/s, `body`/`accent` are part colours,
+-- `size` scales the model, `accessory` picks the head piece the factory builds.
 Catalog.CHARACTERS = {
-	-- Common: cheap, everywhere, the first rung.
-	{ name = "Sir Toaster Crumb", rarity = "Common", rate = 5, body = Color3.fromRGB(210, 180, 120), belly = Color3.fromRGB(245, 220, 160), accessory = "toaster", scale = 1.0 },
-	{ name = "Baron Von Waffle", rarity = "Common", rate = 8, body = Color3.fromRGB(190, 140, 70), belly = Color3.fromRGB(230, 190, 110), accessory = "crown", scale = 1.0 },
-	{ name = "Captain Noodlebeard", rarity = "Common", rate = 12, body = Color3.fromRGB(240, 220, 150), belly = Color3.fromRGB(255, 245, 200), accessory = "hat", scale = 1.05 },
-	-- Rare: a first taste of real money.
-	{ name = "Madame Croissant", rarity = "Rare", rate = 20, body = Color3.fromRGB(220, 170, 90), belly = Color3.fromRGB(250, 215, 140), accessory = "beret", scale = 1.05 },
-	{ name = "El Gato Volador", rarity = "Rare", rate = 28, body = Color3.fromRGB(255, 150, 60), belly = Color3.fromRGB(255, 210, 140), accessory = "wings", scale = 1.1 },
-	{ name = "Professor Bubbleduck", rarity = "Rare", rate = 35, body = Color3.fromRGB(255, 230, 80), belly = Color3.fromRGB(255, 245, 170), accessory = "glasses", scale = 1.1 },
-	-- Epic: the belt starts to feel generous.
-	{ name = "Count Spaghettino", rarity = "Epic", rate = 55, body = Color3.fromRGB(200, 60, 60), belly = Color3.fromRGB(245, 200, 170), accessory = "cape", scale = 1.15 },
-	{ name = "Lady Llama Latte", rarity = "Epic", rate = 70, body = Color3.fromRGB(200, 160, 200), belly = Color3.fromRGB(240, 220, 240), accessory = "flower", scale = 1.15 },
-	{ name = "General Pickle", rarity = "Epic", rate = 90, body = Color3.fromRGB(90, 180, 80), belly = Color3.fromRGB(160, 230, 130), accessory = "helmet", scale = 1.2 },
-	-- Legendary: the ones players cross the map for.
-	{ name = "Dr. Disco Banana", rarity = "Legendary", rate = 140, body = Color3.fromRGB(255, 220, 40), belly = Color3.fromRGB(255, 240, 130), accessory = "disco", scale = 1.25 },
-	{ name = "Queen Of The Couch", rarity = "Legendary", rate = 180, body = Color3.fromRGB(160, 90, 200), belly = Color3.fromRGB(210, 160, 240), accessory = "crown", scale = 1.25 },
-	{ name = "Sir Reginald Wobblebottom", rarity = "Legendary", rate = 220, body = Color3.fromRGB(120, 170, 255), belly = Color3.fromRGB(190, 220, 255), accessory = "tophat", scale = 1.3 },
-	-- Mythic: a whole base's income in one body.
-	{ name = "The Almighty Burrito", rarity = "Mythic", rate = 320, body = Color3.fromRGB(190, 130, 60), belly = Color3.fromRGB(240, 200, 120), accessory = "cape", scale = 1.35 },
-	{ name = "Lord Slippery Soap", rarity = "Mythic", rate = 420, body = Color3.fromRGB(140, 220, 255), belly = Color3.fromRGB(210, 245, 255), accessory = "bubble", scale = 1.35 },
-	{ name = "Empress Of WiFi", rarity = "Mythic", rate = 520, body = Color3.fromRGB(255, 120, 200), belly = Color3.fromRGB(255, 190, 230), accessory = "antenna", scale = 1.4 },
-	-- Divine: endgame money printers.
-	{ name = "Zeus The Goldfish", rarity = "Divine", rate = 800, body = Color3.fromRGB(255, 170, 40), belly = Color3.fromRGB(255, 220, 130), accessory = "lightning", scale = 1.45 },
-	{ name = "Chrono Cat Supreme", rarity = "Divine", rate = 1000, body = Color3.fromRGB(90, 90, 160), belly = Color3.fromRGB(160, 160, 230), accessory = "clock", scale = 1.45 },
-	{ name = "The Infinite Sandwich", rarity = "Divine", rate = 1250, body = Color3.fromRGB(230, 200, 140), belly = Color3.fromRGB(255, 240, 200), accessory = "toaster", scale = 1.5 },
-	-- Secret: the belt almost never shows these.
-	{ name = "Brr Brr The Forbidden One", rarity = "Secret", rate = 2500, body = Color3.fromRGB(60, 60, 90), belly = Color3.fromRGB(120, 120, 180), accessory = "crown", scale = 1.6 },
-	{ name = "Grandma's Secret Recipe", rarity = "Secret", rate = 3500, body = Color3.fromRGB(255, 140, 140), belly = Color3.fromRGB(255, 200, 200), accessory = "chefhat", scale = 1.6 },
-	{ name = "The Last Brain Cell", rarity = "Secret", rate = 5000, body = Color3.fromRGB(200, 255, 220), belly = Color3.fromRGB(240, 255, 245), accessory = "halo", scale = 1.7 },
+	{ name = "Baron Baguette", rarity = "Common", rate = 5, body = Color3.fromRGB(222, 184, 120), accent = Color3.fromRGB(120, 60, 20), size = 1.0, accessory = "Beret" },
+	{ name = "Sir Soggy Cereal", rarity = "Common", rate = 8, body = Color3.fromRGB(190, 170, 200), accent = Color3.fromRGB(90, 60, 120), size = 1.05, accessory = "Bowl" },
+	{ name = "Duke of Donuts", rarity = "Common", rate = 12, body = Color3.fromRGB(240, 150, 180), accent = Color3.fromRGB(255, 255, 255), size = 1.1, accessory = "Sprinkles" },
+	{ name = "Madame Pickle", rarity = "Rare", rate = 20, body = Color3.fromRGB(90, 180, 80), accent = Color3.fromRGB(40, 100, 40), size = 1.1, accessory = "Hat" },
+	{ name = "Count Cappuccino", rarity = "Rare", rate = 30, body = Color3.fromRGB(150, 110, 70), accent = Color3.fromRGB(240, 230, 210), size = 1.15, accessory = "Monocle" },
+	{ name = "Lady Lollipop", rarity = "Rare", rate = 45, body = Color3.fromRGB(230, 80, 120), accent = Color3.fromRGB(255, 255, 255), size = 1.15, accessory = "Bow" },
+	{ name = "General Gummy Bear", rarity = "Epic", rate = 60, body = Color3.fromRGB(230, 60, 60), accent = Color3.fromRGB(255, 200, 0), size = 1.25, accessory = "Helmet" },
+	{ name = "Professor Popcorn", rarity = "Epic", rate = 85, body = Color3.fromRGB(250, 240, 200), accent = Color3.fromRGB(230, 40, 40), size = 1.2, accessory = "Glasses" },
+	{ name = "Queen Queso", rarity = "Epic", rate = 120, body = Color3.fromRGB(250, 210, 60), accent = Color3.fromRGB(255, 255, 255), size = 1.3, accessory = "Crown" },
+	{ name = "King Ketchup", rarity = "Legendary", rate = 180, body = Color3.fromRGB(220, 30, 30), accent = Color3.fromRGB(255, 255, 255), size = 1.35, accessory = "Crown" },
+	{ name = "Empress Espresso", rarity = "Legendary", rate = 250, body = Color3.fromRGB(80, 50, 30), accent = Color3.fromRGB(210, 170, 120), size = 1.35, accessory = "Tiara" },
+	{ name = "Lord Lasagna", rarity = "Legendary", rate = 350, body = Color3.fromRGB(240, 140, 40), accent = Color3.fromRGB(200, 60, 20), size = 1.4, accessory = "Cape" },
+	{ name = "Wizard Waffle", rarity = "Mythic", rate = 500, body = Color3.fromRGB(230, 180, 60), accent = Color3.fromRGB(120, 60, 200), size = 1.45, accessory = "WizardHat" },
+	{ name = "Sultan Spaghetti", rarity = "Mythic", rate = 700, body = Color3.fromRGB(240, 200, 120), accent = Color3.fromRGB(200, 30, 30), size = 1.5, accessory = "Turban" },
+	{ name = "Duchess Dumpling", rarity = "Mythic", rate = 950, body = Color3.fromRGB(240, 240, 235), accent = Color3.fromRGB(180, 120, 200), size = 1.5, accessory = "Fan" },
+	{ name = "Emperor Eggroll", rarity = "Godly", rate = 1300, body = Color3.fromRGB(210, 150, 80), accent = Color3.fromRGB(255, 210, 0), size = 1.6, accessory = "Crown" },
+	{ name = "Saint Sushi", rarity = "Godly", rate = 1800, body = Color3.fromRGB(250, 180, 160), accent = Color3.fromRGB(40, 120, 80), size = 1.6, accessory = "Halo" },
+	{ name = "Pope Pizza", rarity = "Godly", rate = 2400, body = Color3.fromRGB(240, 170, 60), accent = Color3.fromRGB(200, 40, 40), size = 1.7, accessory = "Halo" },
+	{ name = "God of Ramen", rarity = "Secret", rate = 3200, body = Color3.fromRGB(200, 60, 40), accent = Color3.fromRGB(255, 200, 0), size = 1.8, accessory = "Crown" },
+	{ name = "The Flying Burrito", rarity = "Secret", rate = 4200, body = Color3.fromRGB(180, 140, 90), accent = Color3.fromRGB(60, 180, 60), size = 1.8, accessory = "Wings" },
+	{ name = "El Gran Taco Supreme", rarity = "Secret", rate = 5000, body = Color3.fromRGB(250, 200, 50), accent = Color3.fromRGB(220, 60, 40), size = 1.9, accessory = "Sombrero" },
 }
 
--- Mutations: rolled at spawn, rarest first. A mutated brainrot earns its
--- multiplier and is worth the same multiplier on its price.
+-- Mutations. `chance` is the single-roll probability; the roll checks them
+-- rarest first (Rainbow, then Diamond, then Golden).
 Catalog.MUTATIONS = {
-	{ name = "Rainbow", mult = 8, chance = 0.015, color = Color3.fromRGB(255, 120, 220) },
-	{ name = "Diamond", mult = 4, chance = 0.04, color = Color3.fromRGB(180, 240, 255) },
-	{ name = "Golden", mult = 2, chance = 0.10, color = Color3.fromRGB(255, 215, 0) },
+	{ name = "Rainbow", mult = 8, chance = 0.01, color = Color3.fromRGB(255, 100, 200) },
+	{ name = "Diamond", mult = 4, chance = 0.04, color = Color3.fromRGB(120, 230, 255) },
+	{ name = "Golden", mult = 2, chance = 0.12, color = Color3.fromRGB(255, 215, 0) },
 }
 
--- A brainrot's buy price: its rate times 25, so it pays for itself in
--- about 25 seconds. A mutation multiplies the price with the rate.
-function Catalog.getPrice(character, mutation)
-	local mult = 1
-	if mutation ~= nil then
-		mult = mutation.mult
-	end
-	return math.floor(character.rate * 25 * mult)
+-- Price of one brainrot: its effective rate (base rate times mutation) * 25.
+function Catalog.getPrice(record)
+	return record.rate * record.mult * Config.PRICE_MULT
 end
 
--- The $/s a brainrot earns, with its mutation applied.
-function Catalog.getEffectiveRate(character, mutation)
-	local mult = 1
-	if mutation ~= nil then
-		mult = mutation.mult
+-- The colour of a rarity's label.
+function Catalog.rarityColor(rarity)
+	local entry = Catalog.RARITIES[rarity]
+	if entry == nil then
+		return Color3.fromRGB(255, 255, 255)
 	end
-	return character.rate * mult
+	return entry.color
 end
 
--- Rolls one mutation by chance, rarest first, or nil for a plain brainrot.
+-- Roll one mutation for a fresh spawn. Returns the mutation entry, or nil.
 function Catalog.rollMutation()
 	local roll = math.random()
 	local running = 0
@@ -90,22 +83,28 @@ function Catalog.rollMutation()
 	return nil
 end
 
--- Picks a character weighted by its rarity, so Commons crowd the belt
--- and Secrets stay rare.
-function Catalog.randomCharacter()
+-- Roll one character, weighted by rarity, then uniform inside the rarity.
+function Catalog.rollCharacter()
 	local total = 0
-	for _, rarity in pairs(Catalog.RARITIES) do
-		total += rarity.weight
+	for _, rarity in ipairs(Catalog.RARITY_ORDER) do
+		total += Catalog.RARITIES[rarity].weight
 	end
-	local roll = math.random() * total
-	local running = 0
-	for _, character in ipairs(Catalog.CHARACTERS) do
-		running += Catalog.RARITIES[character.rarity].weight
-		if roll < running then
-			return character
+	local pick = math.random() * total
+	local chosen = "Common"
+	for _, rarity in ipairs(Catalog.RARITY_ORDER) do
+		pick -= Catalog.RARITIES[rarity].weight
+		if pick <= 0 then
+			chosen = rarity
+			break
 		end
 	end
-	return Catalog.CHARACTERS[1]
+	local pool = {}
+	for _, character in ipairs(Catalog.CHARACTERS) do
+		if character.rarity == chosen then
+			table.insert(pool, character)
+		end
+	end
+	return pool[math.random(1, #pool)]
 end
 
 return Catalog
