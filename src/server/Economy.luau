@@ -1,202 +1,204 @@
--- Economy.luau
--- Money, buying, selling, rebirth and upgrades for Brainrot Bay (build4).
--- The server validates every move: the client only ever asks.
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage.Shared.Config)
-local Catalog = require(ReplicatedStorage.Shared.Catalog)
+-- Brainrot Bay — money: buying, selling, income ticks, rebirths, upgrades.
+-- The server is authoritative: the client only asks, every rule is checked here.
+local Config = require(game:GetService("ReplicatedStorage").Shared.Config)
 local State = require(script.Parent.State)
 local Plots = require(script.Parent.Plots)
 local Conveyor = require(script.Parent.Conveyor)
-local Steal = require(script.Parent.Steal)
 
 local Economy = {}
 
-local remotes = nil
-local function getRemotes()
-	if remotes == nil then
-		remotes = ReplicatedStorage:WaitForChild("Remotes")
+--- Send a short message to one player's HUD.
+function Economy.notify(remotes, player, message)
+	local event = remotes:FindFirstChild("HudNotify")
+	if event ~= nil then
+		event:FireClient(player, message)
 	end
-	return remotes
 end
 
-function Economy.push(player)
+--- Push a player's cash/income/rebirths to their HUD and leaderstats.
+function Economy.pushState(remotes, player)
 	local state = State.get(player)
 	if state == nil then
 		return
 	end
-	getRemotes().HudUpdate:FireClient(player, state.cash, state.income, state.rebirths)
-end
-
-function Economy.notify(player, text)
-	getRemotes().Notify:FireClient(player, text)
-end
-
--- Central click routing for every brainrot in the game.
-function Economy.handleClick(player, record)
-	if record == nil then
-		return
-	end
-	if record.plotId == 0 then
-		Economy.buy(player, record)
-		return
-	end
-	local state = State.get(player)
-	if state == nil then
-		return
-	end
-	if record.owner == player then
-		if record.carried then
-			Steal.yank(player, record)
-		else
-			Economy.notify(player, record.charName .. " is already yours.")
+	local income = State.recalcIncome(state)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats ~= nil then
+		local cashValue = leaderstats:FindFirstChild("Cash")
+		local incomeValue = leaderstats:FindFirstChild("Income")
+		local rebirthValue = leaderstats:FindFirstChild("Rebirths")
+		if cashValue ~= nil then
+			cashValue.Value = state.cash
 		end
-		return
+		if incomeValue ~= nil then
+			incomeValue.Value = income
+		end
+		if rebirthValue ~= nil then
+			rebirthValue.Value = state.rebirths
+		end
 	end
-	Steal.trySteal(player, record)
+	local event = remotes:FindFirstChild("HudUpdate")
+	if event ~= nil then
+		event:FireClient(player, state.cash, income, state.rebirths, state.speedLevel, state.incomeLevel)
+	end
 end
 
--- Buy a brainrot that is walking the belt.
-function Economy.buy(player, record)
+--- Where an owned brainrot stands on its plot.
+local function placeOnPlot(record)
+	local ground = Plots.slotPosition(record.plotId, record.slotIndex)
+	local size = record.model:GetAttribute("Size")
+	record.model:PivotTo(CFrame.new(ground.X, ground.Y + size / 2, ground.Z))
+end
+
+--- Handle a click on a brainrot: buy it off the belt, sell your own, or
+-- start a steal on somebody else's.
+function Economy.handleClick(remotes, player, brainrotId)
 	local state = State.get(player)
 	if state == nil then
 		return
 	end
-	if record.plotId ~= 0 then
+	local record = Conveyor.belt[brainrotId]
+	if record ~= nil then
+		-- On the belt: buy it.
+		if state.cash < record.price then
+			Economy.notify(remotes, player, string.format("Need $%d for %s!", record.price, record.charName))
+			return
+		end
+		if state.plotId == 0 then
+			Economy.notify(remotes, player, "No free plot yet, wait a moment!")
+			return
+		end
+		local taken = {}
+		for _, owned in pairs(state.owned) do
+			if owned.plotId == state.plotId then
+				taken[owned.slotIndex] = true
+			end
+		end
+		local slotIndex = Plots.freeSlot(taken)
+		if slotIndex == 0 then
+			Economy.notify(remotes, player, "Your base is full! Sell or rebirth first.")
+			return
+		end
+		state.cash = state.cash - record.price
+		Conveyor.belt[brainrotId] = nil
+		record.owner = player
+		record.plotId = state.plotId
+		record.slotIndex = slotIndex
+		state.owned[record.id] = record
+		placeOnPlot(record)
+		Economy.notify(remotes, player, string.format("Bought %s for $%d!", record.charName, record.price))
+		Economy.pushState(remotes, player)
 		return
 	end
-	local plotId = Plots.plotOf(player)
-	if plotId == 0 then
-		Economy.notify(player, "You have no base yet.")
-		return
+	-- Not on the belt: find whose base it lives on.
+	for _, otherState in pairs(State.players) do
+		local owned = otherState.owned[brainrotId]
+		if owned ~= nil then
+			if owned.owner == player then
+				-- Your own brainrot: sell it for a 50% refund.
+				local refund = math.floor(owned.price * Config.SELL_REFUND)
+				state.cash = state.cash + refund
+				owned.model:Destroy()
+				state.owned[brainrotId] = nil
+				Economy.notify(remotes, player, string.format("Sold %s for $%d.", owned.charName, refund))
+				Economy.pushState(remotes, player)
+			else
+				-- Somebody else's: steal it.
+				local Steal = require(script.Parent.Steal)
+				Steal.startSteal(remotes, player, owned)
+			end
+			return
+		end
 	end
-	local slot = Plots.freeSlot(player, state.owned)
-	if slot == 0 then
-		Economy.notify(player, "Your base is full! Sell or rebirth first.")
-		return
-	end
-	local price = Catalog.getPrice(record)
-	if state.cash < price then
-		Economy.notify(player, "Not enough cash! Need $" .. tostring(price) .. ".")
-		return
-	end
-	if Conveyor.take(player, record) == false then
-		return
-	end
-	State.addCash(player, -price)
-	record.owner = player
-	record.plotId = plotId
-	record.slot = slot
-	state.owned[record.id] = record
-	State.recalcIncome(player)
-	Economy.push(player)
-	Economy.notify(player, "Bought " .. record.charName .. " for $" .. tostring(price) .. "!")
 end
 
--- Sell one of your own brainrots for a 50% refund.
-function Economy.sell(player, recordId)
+--- One income tick for every player, every INCOME_TICK seconds.
+function Economy.tickLoop(remotes)
+	task.spawn(function()
+		while true do
+			task.wait(Config.INCOME_TICK)
+			for player, state in pairs(State.players) do
+				local income = State.recalcIncome(state)
+				if income > 0 then
+					state.cash = state.cash + income
+				end
+				Economy.pushState(remotes, player)
+			end
+		end
+	end)
+end
+
+--- Rebirth: pay the cost, reset cash + brainrots, keep +25% income per level.
+function Economy.rebirth(remotes, player)
 	local state = State.get(player)
 	if state == nil then
 		return
 	end
-	local record = state.owned[recordId]
-	if record == nil then
-		return
-	end
-	local refund = math.floor(Catalog.getPrice(record) * Config.SELL_REFUND + 0.5)
-	if record.model ~= nil then
-		record.model:Destroy()
-	end
-	State.removeRecord(recordId)
-	state.owned[recordId] = nil
-	State.addCash(player, refund)
-	State.recalcIncome(player)
-	Economy.push(player)
-	Economy.notify(player, "Sold " .. record.charName .. " for $" .. tostring(refund) .. ".")
-end
-
--- Rebirth: costs 250k times the next level, resets cash and brainrots,
--- and adds +25% income per level forever.
-function Economy.rebirth(player)
-	local state = State.get(player)
-	if state == nil then
-		return
-	end
-	local nextLevel = state.rebirths + 1
-	local cost = Config.REBIRTH_BASE_COST * nextLevel
+	local cost = Config.REBIRTH_BASE_COST * (state.rebirths + 1)
 	if state.cash < cost then
-		Economy.notify(player, "Rebirth costs $" .. tostring(cost) .. ".")
+		Economy.notify(remotes, player, string.format("Rebirth costs $%d!", cost))
 		return
 	end
-	for recordId, record in pairs(state.owned) do
-		if record.model ~= nil then
-			record.model:Destroy()
-		end
-		State.removeRecord(recordId)
+	for _, record in pairs(state.owned) do
+		record.model:Destroy()
 	end
 	state.owned = {}
 	state.cash = Config.START_CASH
-	state.rebirths = nextLevel
-	State.recalcIncome(player)
-	Economy.push(player)
-	Economy.notify(player, "Rebirth " .. tostring(nextLevel) .. "! Income +" .. tostring(25 * nextLevel) .. "%.")
+	state.rebirths = state.rebirths + 1
+	Economy.notify(remotes, player, string.format("Rebirth %d! Income +%d%%.", state.rebirths, math.floor(Config.REBIRTH_BONUS * state.rebirths * 100)))
+	Economy.pushState(remotes, player)
 end
 
--- Buy one level of an upgrade ("Speed" or "Income"), at most 3 levels.
-function Economy.buyUpgrade(player, kind)
+--- Buy one level of an upgrade ("Speed" or "Income").
+function Economy.buyUpgrade(remotes, player, kind)
 	local state = State.get(player)
 	if state == nil then
 		return
 	end
-	local upgrade = Config.UPGRADES[kind]
-	if upgrade == nil then
+	local upgradeDef = Config.UPGRADES[kind]
+	if upgradeDef == nil then
 		return
 	end
 	local level = 0
 	if kind == "Speed" then
 		level = state.speedLevel
-	elseif kind == "Income" then
+	else
 		level = state.incomeLevel
 	end
-	if level >= #upgrade.costs then
-		Economy.notify(player, upgrade.name .. " is maxed out!")
+	if level >= upgradeDef.maxLevel then
+		Economy.notify(remotes, player, upgradeDef.name .. " is maxed out!")
 		return
 	end
-	local cost = upgrade.costs[level + 1]
+	local cost = upgradeDef.costs[level + 1]
 	if state.cash < cost then
-		Economy.notify(player, upgrade.name .. " level " .. tostring(level + 1) .. " costs $" .. tostring(cost) .. ".")
+		Economy.notify(remotes, player, string.format("%s level %d costs $%d!", upgradeDef.name, level + 1, cost))
 		return
 	end
-	State.addCash(player, -cost)
+	state.cash = state.cash - cost
 	if kind == "Speed" then
-		state.speedLevel = level + 1
-		local character = player.Character
-		if character ~= nil then
-			local humanoid = character:FindFirstChildOfClass("Humanoid")
-			if humanoid ~= nil then
-				humanoid.WalkSpeed = State.walkSpeed(player)
-			end
-		end
-	elseif kind == "Income" then
-		state.incomeLevel = level + 1
-		State.recalcIncome(player)
+		state.speedLevel = state.speedLevel + 1
+		State.applyWalkSpeed(state, false)
+	else
+		state.incomeLevel = state.incomeLevel + 1
 	end
-	Economy.push(player)
-	Economy.notify(player, upgrade.name .. " level " .. tostring(level + 1) .. " bought!")
+	Economy.notify(remotes, player, string.format("%s level %d bought!", upgradeDef.name, level + 1))
+	Economy.pushState(remotes, player)
 end
 
--- Income tick, run once a second from init: every player earns their $/s.
-function Economy.tickLoop()
-	while true do
-		task.wait(1)
-		for player, _ in pairs(State.allPlayers()) do
-			local state = State.get(player)
-			if state ~= nil and state.income > 0 then
-				State.addCash(player, state.income)
-				Economy.push(player)
-			end
-		end
+--- Lock a base for LOCK_DURATION seconds (then LOCK_COOLDOWN cooldown).
+function Economy.lockBase(remotes, player)
+	local state = State.get(player)
+	if state == nil then
+		return
 	end
+	local now = os.clock()
+	if now < state.lockCooldownUntil then
+		Economy.notify(remotes, player, "Lock is cooling down!")
+		return
+	end
+	state.lockUntil = now + Config.LOCK_DURATION
+	state.lockCooldownUntil = now + Config.LOCK_DURATION + Config.LOCK_COOLDOWN
+	Economy.notify(remotes, player, "Base locked for 60 seconds!")
 end
 
 return Economy

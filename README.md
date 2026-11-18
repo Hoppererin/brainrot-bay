@@ -4,50 +4,45 @@
 [![Rank](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/rank.svg)](https://make.fun/bounty/roblox-brainrot-01)
 [![Reward](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/reward.svg)](https://make.fun/bounty/roblox-brainrot-01)
 
-A 3D Roblox game in the Steal-a-Brainrot genre, built for the
-[roblox-brainrot-01 bounty](https://make.fun/bounty/roblox-brainrot-01) on make.fun.
+A 3D Roblox brainrot game — a Steal-a-Brainrot-style island where brainrots
+walk the conveyor, you click to buy them, they earn cash at your base, and
+thieves, tsunamis and rebirths keep the tension up.
 
-## How to play
+## The game
 
-Brainrots walk in from the purple portal and along the neon conveyor.
-**Click one to buy it** — it walks to your base and earns money every second.
-Click another player's brainrot to **steal** it, but you only have 20 seconds
-to run it home, and the owner can yank it back within 40 studs.
-**Lock your base** to stop thieves. A **tsunami** sweeps the island every
-3 minutes: hide in your base or at spawn, or get splashed back.
-Spend your cash on **rebirths** (+25% income per level) and **upgrades**
-(Speed Boots, Income Boost, 3 levels each).
+- **40 original brainrots** in 7 rarities (Common → Secret, $5/s to $5,000/s),
+  plus Golden (×2), Diamond (×4) and Rainbow (×8) mutations.
+- **Buy–steal–rebirth loop**: click a brainrot on the conveyor to buy it
+  (price = $/s × 25); it walks to your base and earns every second. Click
+  your own brainrot to sell it for a 50% refund. Click someone else's to
+  steal it — carry it home in 20 seconds while the owner tries to yank it
+  back. Lock your base for 60 seconds to stop thieves.
+- **Tsunami every 3 minutes**: a wave sweeps the island; get to spawn or
+  your base, or get splashed back and stunned.
+- **Progression**: rebirths (+25% income per level) and Speed / Income
+  upgrades, 3 levels each.
+- **World**: a 220-stud sand island in the sea, neon-railed conveyor with
+  portal and exit arches, 8 colour-coded base plots (6 slots each), spawn
+  plaza, volcano, lamps, palms, clouds and spinning gold coins.
+- **Server-authoritative**: the client only asks; the server validates every
+  buy, sell, steal, rebirth and upgrade.
 
-## The cast
+## Layout
 
-21 original characters in 7 rarities — Common, Rare, Epic, Legendary,
-Mythic, Godly, Secret — earning $5/s up to $5,000/s, plus Golden (x2),
-Diamond (x4) and Rainbow (x8) mutations. The cheapest brainrot costs $125,
-and you start with $150, so your first buy is always within reach.
+- `src/shared/` — `Config.luau` (all tuning in one place) and `Catalog.luau`
+  (the 40-character roster, rarities, mutations).
+- `src/server/` — `State`, `Plots`, `Conveyor`, `BrainrotFactory`,
+  `Economy`, `Steal`, `Events`, `WorldBuilder`, `init.server`.
+- `src/client/` — `Game.client` (bootstrap) and `Hud` (cash bar, banner,
+  buttons, upgrades and help panels).
+- `main.ts` — writes `dossier.json` from `game.rbxl`, `src/` and
+  `screenshots/` (Node 22, standard library only).
+- `game.rbxl` — built with Rojo 7.7 from `default.project.json`.
 
-## Structure
+## Play
 
-- `src/shared/` — `Config.luau` (tuning, plots, upgrades) and `Catalog.luau`
-  (the 21 characters, rarities, mutations)
-- `src/server/` — `State` (the one server store), `Plots`, `Conveyor`,
-  `BrainrotFactory`, `Economy`, `Steal`, `Events` (tsunami), `WorldBuilder`
-  (palms, coins, clouds, signs) and `init.server.luau`
-- `src/client/` — `Game.client.luau` and `Hud.luau`
-- `default.project.json` — the static island, built with Rojo (`rojo build`)
-- `main.ts` — the hand-in program: copies the game to `/output` and writes
-  `dossier.json` with the kit's `vendor/makefun-roblox.ts`
-- `game.rbxl` — the built place file, `PLAY.json` — the play link,
-  `TOUR.json` — a guided tour of the game
+Publish the place from Roblox Studio as a new experience named
+**Brainrot Bay Island**, set it Public, and put the play code
+`makefun-quince-dragon-mole` in the experience description.
 
-Everything is server-authoritative: the client draws the HUD and asks,
-the server validates every buy, sell, steal, rebirth and upgrade.
-
-## Build
-
-```sh
-rojo build -o game.rbxl
-MAKEFUN_OUTPUT_DIR=out node main.ts
-```
-
-Entered on make.fun — play it at https://make.fun/bounty/roblox-brainrot-01 —
-my referral link: https://make.fun/r/dhj53q2r
+Entered on [make.fun](https://make.fun/r/dhj53q2r)

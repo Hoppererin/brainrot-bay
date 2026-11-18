@@ -1,136 +1,113 @@
--- Events.luau
--- Timed events for Brainrot Bay (build4, written from scratch).
--- A tsunami sweeps the island every 3 minutes: 10 seconds of warning,
--- then a wave rolls south. Players caught outside a safe zone (their own
--- plot, or the spawn plaza) are splashed back to spawn and stunned 2s.
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage.Shared.Config)
+-- Brainrot Bay — the tsunami event.
+-- Every TSUNAMI_INTERVAL seconds a wave sweeps the island. A warning banner
+-- goes out first; then the wave crosses the map from north to south, and
+-- any player caught outside a safe zone (spawn plaza or their own plot) is
+-- splashed back to spawn and stunned for TSUNAMI_STUN seconds.
+local Config = require(game:GetService("ReplicatedStorage").Shared.Config)
 local State = require(script.Parent.State)
 local Plots = require(script.Parent.Plots)
 
 local Events = {}
 
-local remotes = nil
-local waveRunning = false
-
-local function getRemotes()
-	if remotes == nil then
-		remotes = ReplicatedStorage:WaitForChild("Remotes")
-	end
-	return remotes
-end
-
-local function broadcastBanner(text, seconds)
-	getRemotes().EventBanner:FireAllClients(text, seconds)
-end
-
--- True when the player stands somewhere the wave cannot reach.
+--- Is a player standing somewhere safe from the wave?
 local function isSafe(player)
 	local character = player.Character
 	if character == nil then
 		return true
 	end
-	local root = character:FindFirstChild("HumanoidRootPart")
-	if root == nil then
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if rootPart == nil then
 		return true
 	end
-	local pos = root.Position
+	local pos = rootPart.Position
 	if (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(Config.SPAWN_CENTER.X, 0, Config.SPAWN_CENTER.Z)).Magnitude <= Config.SPAWN_SAFE_RADIUS then
 		return true
 	end
-	local plotId = Plots.plotOf(player)
-	if plotId ~= 0 then
-		local plot = Plots.get(plotId)
-		if plot ~= nil and math.abs(pos.X - plot.center.X) <= 13 and math.abs(pos.Z - plot.center.Z) <= 11 then
+	local state = State.get(player)
+	if state ~= nil and state.plotId ~= 0 then
+		local plotInfo = Plots.get(state.plotId)
+		if plotInfo ~= nil and (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(plotInfo.center.X, 0, plotInfo.center.Z)).Magnitude <= 18 then
 			return true
 		end
 	end
 	return false
 end
 
+--- Splash one player: back to spawn, stunned briefly.
 local function splash(player)
+	local state = State.get(player)
 	local character = player.Character
 	if character == nil then
 		return
 	end
-	local root = character:FindFirstChild("HumanoidRootPart")
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if root == nil or humanoid == nil then
-		return
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if rootPart ~= nil then
+		rootPart.CFrame = CFrame.new(Config.SPAWN_POSITION)
 	end
-	root.CFrame = CFrame.new(Config.SPAWN_CENTER + Vector3.new(0, 3, 0))
-	humanoid.WalkSpeed = 0
-	humanoid.JumpPower = 0
-	getRemotes().Notify:FireClient(player, "The tsunami splashed you back to spawn!")
-	task.delay(Config.TSUNAMI_STUN, function()
-		local still = player.Character
-		if still == nil then
-			return
+	if state ~= nil then
+		State.applyWalkSpeed(state, false)
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid ~= nil then
+			humanoid.WalkSpeed = 0
+			task.delay(Config.TSUNAMI_STUN, function()
+				if state.player.Parent ~= nil then
+					State.applyWalkSpeed(state, false)
+				end
+			end)
 		end
-		local stillHumanoid = still:FindFirstChildOfClass("Humanoid")
-		if stillHumanoid ~= nil then
-			stillHumanoid.WalkSpeed = State.walkSpeed(player)
-			stillHumanoid.JumpPower = 50
-		end
-	end)
+	end
 end
 
-function Events.runTsunami()
-	if waveRunning then
-		return
+--- Run one tsunami: warn, then sweep the wave across the island.
+local function runTsunami(remotes, wave)
+	local banner = remotes:FindFirstChild("HudBanner")
+	if banner ~= nil then
+		banner:FireAllClients(string.format("TSUNAMI IN %d SECONDS! Get to spawn or your base!", Config.TSUNAMI_WARNING))
 	end
-	waveRunning = true
-	broadcastBanner("TSUNAMI INCOMING! Get to your base or spawn!", Config.TSUNAMI_WARNING)
 	task.wait(Config.TSUNAMI_WARNING)
-	broadcastBanner("TSUNAMI!", 6)
-
-	local wave = Instance.new("Part")
-	wave.Name = "TsunamiWave"
-	wave.Size = Vector3.new(230, 18, 12)
-	wave.Color = Color3.fromRGB(40, 120, 220)
-	wave.Material = Enum.Material.SmoothPlastic
-	wave.Transparency = 0.3
-	wave.Anchored = true
-	wave.CanCollide = false
+	if banner ~= nil then
+		banner:FireAllClients("TSUNAMI! Hold on!")
+	end
 	wave.Parent = workspace
-
-	local splashed = {}
-	local z = -115
-	while z <= 115 do
-		wave.Position = Vector3.new(0, 6, z)
-		for player, _ in pairs(State.allPlayers()) do
-			if splashed[player] == nil and not isSafe(player) then
-				local character = player.Character
-				local root = nil
-				if character ~= nil then
-					root = character:FindFirstChild("HumanoidRootPart")
-				end
-				if root ~= nil and math.abs(root.Position.Z - z) < 8 then
-					splashed[player] = true
+	local startZ = -110
+	local endZ = 110
+	local duration = 8
+	local steps = 40
+	for step = 1, steps do
+		local z = startZ + (endZ - startZ) * (step / steps)
+		wave.CFrame = CFrame.new(0, 4, z)
+		for player, _ in pairs(State.players) do
+			local character = player.Character
+			if character ~= nil then
+				local rootPart = character:FindFirstChild("HumanoidRootPart")
+				if rootPart ~= nil and math.abs(rootPart.Position.Z - z) < 12 and not isSafe(player) then
 					splash(player)
 				end
 			end
 		end
-		z += 6
-		task.wait(0.06)
+		task.wait(duration / steps)
 	end
-	wave:Destroy()
-	waveRunning = false
-end
-
--- The tour (TOUR.json) calls this to show the tsunami on demand.
-function Events.trigger(kind)
-	if kind == "tsunami" then
-		task.spawn(Events.runTsunami)
+	wave.Parent = nil
+	if banner ~= nil then
+		banner:FireAllClients("")
 	end
 end
 
-function Events.start()
+--- Start the tsunami timer.
+function Events.start(remotes)
+	local wave = Instance.new("Part")
+	wave.Name = "TsunamiWave"
+	wave.Size = Vector3.new(240, 12, 20)
+	wave.Color = Color3.fromRGB(40, 120, 220)
+	wave.Material = Enum.Material.Neon
+	wave.Anchored = true
+	wave.CanCollide = false
+	wave.Transparency = 0.25
+
 	task.spawn(function()
 		while true do
 			task.wait(Config.TSUNAMI_INTERVAL)
-			Events.runTsunami()
+			runTsunami(remotes, wave)
 		end
 	end)
 end
