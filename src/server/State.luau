@@ -1,68 +1,113 @@
--- Brainrot Bay: the single state store.
--- Every number that matters about a player lives in one table per player,
--- so no two services can disagree about cash, income, rebirths or upgrades.
+-- Brainrot Bay — the single state store.
+-- Every player's money, levels and brainrots live here, and every brainrot
+-- record is registered here too, so any module can find it by id without
+-- requiring the module that spawned it.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Config = require(ReplicatedStorage.Shared.Config)
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Catalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Catalog"))
 
 local State = {}
-State.Players = {} -- [Player] = state table
 
-function State.new(player: Player)
-	local state = {
+local playerStates = {} -- [Player] = state
+local records = {} -- [recordId] = brainrot record
+local nextRecordId = 0
+
+export type PlayerState = {
+	player: Player,
+	cash: number,
+	rebirths: number,
+	speedLevel: number,
+	incomeLevel: number,
+	owned: { [number]: boolean }, -- record ids on this player's base
+	plotId: number?,
+	lockUntil: number,
+	lockCooldownUntil: number,
+	carrying: number?, -- record id being carried after a steal
+}
+
+export type BrainrotRecord = {
+	id: number,
+	character: typeof(Catalog.CHARACTERS[1]),
+	mutation: any,
+	model: Model,
+	state: string, -- "walking" | "owned" | "carried" | "gone"
+	owner: Player?,
+	plotId: number?,
+	slotIndex: number?,
+	carrier: Player?,
+	progress: number,
+}
+
+-- A fresh player: starting cash, no rebirths, no upgrades, empty base.
+function State.new(player: Player): PlayerState
+	local state: PlayerState = {
 		player = player,
 		cash = Config.START_CASH,
 		rebirths = 0,
-		upgrades = { Speed = 0, Income = 0 },
+		speedLevel = 0,
+		incomeLevel = 0,
+		owned = {},
 		plotId = nil,
-		owned = {}, -- [brainrotId] = brainrot record
-		carrying = nil, -- brainrotId the player is carrying, if any
 		lockUntil = 0,
 		lockCooldownUntil = 0,
-		yankCooldownUntil = 0,
-		stunnedUntil = 0, -- os.clock() time until the tsunami stun wears off
-		baseWalkSpeed = 16,
+		carrying = nil,
 	}
-	State.Players[player] = state
+	playerStates[player] = state
 	return state
 end
 
-function State.get(player: Player)
-	return State.Players[player]
+function State.get(player: Player): PlayerState?
+	return playerStates[player]
 end
 
 function State.remove(player: Player)
-	State.Players[player] = nil
+	playerStates[player] = nil
 end
 
--- Income multiplier from rebirths and the Income upgrade, combined.
-function State.getIncomeMultiplier(state): number
-	local mult = 1 + state.rebirths * Config.REBIRTH_MULT_PER_LEVEL
-	mult += state.upgrades.Income * Config.UPGRADES.Income.bonusPerLevel
-	return mult
+-- Registers a brainrot record and hands it its id.
+function State.addRecord(record: BrainrotRecord): number
+	nextRecordId += 1
+	record.id = nextRecordId
+	records[record.id] = record
+	return record.id
 end
 
--- WalkSpeed with the Speed upgrade applied (carrying slows you down).
-function State.getWalkSpeed(state): number
-	local speed = state.baseWalkSpeed + state.upgrades.Speed * Config.UPGRADES.Speed.bonusPerLevel
+function State.getRecord(id: number): BrainrotRecord?
+	return records[id]
+end
+
+function State.removeRecord(id: number)
+	records[id] = nil
+end
+
+-- The $/s a player earns right now: every owned brainrot's rate, with its
+-- mutation, then the rebirth bonus and the income-upgrade bonus.
+function State.getIncomePerSecond(state: PlayerState): number
+	local total = 0
+	for id in pairs(state.owned) do
+		local record = records[id]
+		if record ~= nil then
+			total += Catalog.getEffectiveRate(record.character, record.mutation)
+		end
+	end
+	total *= 1 + Config.REBIRTH_BONUS * state.rebirths
+	total *= 1 + Config.UPGRADES.Income.bonusPerLevel * state.incomeLevel
+	return total
+end
+
+-- A player's walk speed: base, plus Speed Boots, slowed while carrying.
+function State.walkSpeed(state: PlayerState): number
+	local speed = Config.BASE_WALKSPEED + Config.UPGRADES.Speed.bonusPerLevel * state.speedLevel
 	if state.carrying ~= nil then
-		speed = Config.CARRY_SPEED_PENALTY
+		speed *= Config.STEAL_SLOW
 	end
 	return speed
 end
 
--- Money per second across everything the player owns, after multipliers.
-function State.getIncomePerSecond(state): number
-	local total = 0
-	for _, brainrot in pairs(state.owned) do
-		total += brainrot.rate
-	end
-	return math.floor(total * State.getIncomeMultiplier(state))
-end
-
-function State.getRebirthCost(state): number
-	return Config.REBIRTH_BASE_COST * (state.rebirths + 1)
+-- Whether a player's base lock is up right now.
+function State.isLocked(state: PlayerState): boolean
+	return os.clock() < state.lockUntil
 end
 
 return State
