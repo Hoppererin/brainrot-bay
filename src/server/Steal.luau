@@ -1,209 +1,173 @@
--- Brainrot Bay: stealing.
--- Click a brainrot on someone else's base to grab it and carry it home:
--- you walk slower while carrying, the owner can yank it back with a click
--- while you are close, and a locked base cannot be stolen from at all.
--- The lock is the defence; the carry is the risk.
+-- Brainrot Bay — stealing.
+-- Click a brainrot on another player's base to carry it home: you have 20
+-- seconds at reduced speed, and its owner can yank it back by clicking it
+-- while you are within 40 studs. A locked base cannot be stolen from at
+-- all. Carrying is a follow loop, not a weld: the model rides above your
+-- head until you reach your own plot or the timer runs out.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Config = require(ReplicatedStorage.Shared.Config)
-local Plots = require(script.Parent.Plots)
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local State = require(script.Parent.State)
+local Plots = require(script.Parent.Plots)
 
 local Steal = {}
-local Conveyor = nil
-local Economy = nil
 
-function Steal.init(remotes, economy, conveyor)
-	Economy = economy
-	Conveyor = conveyor
+-- Plants a brainrot on a slot at once (used when a steal lands or is
+-- yanked back): state, owner, slot bookkeeping and model position.
+local function placeOnSlot(record: State.BrainrotRecord, player: Player, plot: Plots.Plot, slotIndex: number)
+	record.state = "owned"
+	record.owner = player
+	record.plotId = plot.id
+	record.slotIndex = slotIndex
+	record.carrier = nil
+	plot.taken[slotIndex] = record.id
+	local target = Plots.slotPosition(plot, slotIndex)
+	local height = 2.4 * record.character.scale
+	record.model:PivotTo(CFrame.new(target.X, target.Y + height / 2, target.Z))
 end
 
-local function distanceTo(player: Player, position: Vector3): number
+local function restoreWalkSpeed(player: Player)
+	local state = State.get(player)
+	if state == nil then
+		return
+	end
 	local character = player.Character
-	if not character then
-		return math.huge
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid ~= nil then
+		humanoid.WalkSpeed = State.walkSpeed(state)
 	end
-	local root = character:FindFirstChild("HumanoidRootPart")
-	if not root then
-		return math.huge
-	end
-	return (root.Position - position).Magnitude
 end
 
--- Lock the player's own base: no stealing from it while the lock holds.
-function Steal.tryLock(player: Player)
+local function freeCarrier(player: Player)
 	local state = State.get(player)
-	if not state then
-		return
+	if state ~= nil then
+		state.carrying = nil
 	end
-	local now = os.clock()
-	if now < state.lockCooldownUntil then
-		local wait = math.floor(state.lockCooldownUntil - now)
-		Economy.notify(player, "Lock recharging: " .. tostring(wait) .. "s left.")
-		return
-	end
-	state.lockUntil = now + Config.LOCK_DURATION
-	state.lockCooldownUntil = now + Config.LOCK_COOLDOWN
-	Economy.notify(player, "Base LOCKED for " .. tostring(Config.LOCK_DURATION) .. "s!")
+	restoreWalkSpeed(player)
 end
 
-function Steal.trySteal(player: Player, record)
+-- Starts a steal: lifts the brainrot off its owner's base and rides it
+-- above the thief's head. The run ends when the thief reaches their own
+-- plot (kept), the 20 seconds run out (sent back), or the owner yanks it.
+function Steal.trySteal(player: Player, record: State.BrainrotRecord)
 	local state = State.get(player)
-	if not state or record.state ~= "owned" then
-		return
-	end
-	local owner = record.owner
-	if owner == player then
-		-- Clicking your own brainrot offers to sell it instead.
-		Economy.trySell(player, record.id)
+	if state == nil or record.owner == player or record.state ~= "owned" then
 		return
 	end
 	if state.carrying ~= nil then
-		Economy.notify(player, "You are already carrying one! Bring it home first.")
 		return
 	end
-	local ownerState = owner and State.get(owner)
-	if ownerState and os.clock() < ownerState.lockUntil then
-		Economy.notify(player, "That base is LOCKED. Wait for the lock to end!")
+	local ownerState = nil
+	if record.owner ~= nil then
+		ownerState = State.get(record.owner)
+	end
+	if ownerState ~= nil and State.isLocked(ownerState) then
 		return
 	end
-	local plot = Plots.getFor(player)
-	if not plot then
+	local homePlot = Plots.plotOf(player)
+	if homePlot == nil then
 		return
 	end
-	if Plots.getFreeSlot(plot) == nil then
-		Economy.notify(player, "Your base is full! No room for a stolen brainrot.")
-		return
+	local oldPlot = Plots.get(record.plotId or 0)
+	if oldPlot ~= nil and record.slotIndex ~= nil then
+		oldPlot.taken[record.slotIndex] = nil
 	end
-	-- Grab it: it leaves its slot and follows the thief.
+	if ownerState ~= nil then
+		ownerState.owned[record.id] = nil
+	end
+
 	record.state = "carried"
-	record.carriedBy = player
-	record.carryDeadline = os.clock() + Config.CARRY_TIME_LIMIT
-	if record.plotId then
-		local ownerPlot = Plots.List[record.plotId]
-		if ownerPlot and record.slotIndex then
-			ownerPlot.taken[record.slotIndex] = nil
-		end
-		record.plotId = nil
-		record.slotIndex = nil
-	end
+	record.carrier = player
+	record.plotId = nil
+	record.slotIndex = nil
 	state.carrying = record.id
-	Economy.applyWalkSpeed(player)
-	Economy.notify(player, "STOLEN! Run home in " .. tostring(Config.CARRY_TIME_LIMIT) .. "s — you are slow and the owner can yank it back!")
-	if owner then
-		Economy.notify(owner, player.DisplayName .. " stole your " .. record.spawn.character.name .. "! Click it to yank it back!")
+	restoreWalkSpeed(player)
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid ~= nil then
+		humanoid.WalkSpeed = State.walkSpeed(state)
 	end
-	-- The carry: the brainrot hovers above the thief until home, or the
-	-- timer runs out and it walks back to its owner's plot. Checked every
-	-- 0.1 s so a fast thief crossing the plot edge is caught at once.
+
 	task.spawn(function()
+		local deadline = os.clock() + Config.STEAL_TIME
 		while record.state == "carried" and record.model.Parent do
-			local character = player.Character
-			local root = character and character:FindFirstChild("HumanoidRootPart")
-			if not root then
+			local carrierCharacter = player.Character
+			local rootPart = carrierCharacter and carrierCharacter:FindFirstChild("HumanoidRootPart")
+			if rootPart == nil then
 				break
 			end
-			record.model:PivotTo(CFrame.new(root.Position + Vector3.new(0, 5, 0)))
-			local ownPlot = Plots.getFor(player)
-			if ownPlot and Plots.isInside(ownPlot, root.Position) then
-				Steal.completeSteal(player, record)
-				return
+			record.model:PivotTo((rootPart :: BasePart).CFrame * CFrame.new(0, 3.5, 0))
+			local distance = (rootPart.Position - homePlot.center).Magnitude
+			if distance < Config.STEAL_HOME_RANGE then
+				local slotIndex = Plots.freeSlot(homePlot)
+				if slotIndex ~= nil then
+					placeOnSlot(record, player, homePlot, slotIndex)
+					state.owned[record.id] = true
+					freeCarrier(player)
+					return
+				end
 			end
-			if os.clock() > record.carryDeadline then
-				Steal.dropCarried(player, record, "Too slow! The brainrot ran home.")
-				return
+			if os.clock() >= deadline then
+				break
 			end
-			task.wait(0.1)
+			task.wait(0.05)
+		end
+		-- The run failed or the carrier left: send it back to its owner.
+		if record.state == "carried" then
+			freeCarrier(player)
+			local owner = record.owner
+			if owner ~= nil then
+				local ownerPlot = Plots.plotOf(owner)
+				local ownerStateNow = State.get(owner)
+				if ownerPlot ~= nil and ownerStateNow ~= nil then
+					local slotIndex = Plots.freeSlot(ownerPlot)
+					if slotIndex ~= nil then
+						placeOnSlot(record, owner, ownerPlot, slotIndex)
+						ownerStateNow.owned[record.id] = true
+						return
+					end
+				end
+			end
+			record.state = "gone"
+			State.removeRecord(record.id)
+			record.model:Destroy()
 		end
 	end)
 end
 
--- The thief made it home: the brainrot is theirs now.
-function Steal.completeSteal(player: Player, record)
-	local state = State.get(player)
-	if not state then
+-- The owner clicks their own carried brainrot while the thief is close:
+-- it snaps back to the owner's base and the thief walks away empty-handed.
+function Steal.tryYankBack(player: Player, record: State.BrainrotRecord)
+	if record.state ~= "carried" or record.owner ~= player then
 		return
 	end
-	local plot = Plots.getFor(player)
-	local slotIndex = plot and Plots.getFreeSlot(plot)
-	if not slotIndex then
-		Steal.dropCarried(player, record, "No free slot at home!")
+	local carrier = record.carrier
+	if carrier == nil then
 		return
 	end
-	local previousOwner = record.owner
-	state.carrying = nil
-	record.owner = player
-	record.carriedBy = nil
-	state.owned[record.id] = record
-	Economy.applyWalkSpeed(player)
-	Conveyor.sendToPlot(record, plot, slotIndex)
-	Economy.notify(player, "You kept the stolen " .. record.spawn.character.name .. "!")
-	if previousOwner and previousOwner ~= player then
-		Economy.notify(previousOwner, "Your " .. record.spawn.character.name .. " was stolen for good!")
-	end
-	Economy.refreshLeaderstats(player)
-end
-
--- The carry failed: the brainrot walks back to its owner's plot.
-function Steal.dropCarried(player: Player, record, reason: string)
-	local state = State.get(player)
-	if state and state.carrying == record.id then
-		state.carrying = nil
-		Economy.applyWalkSpeed(player)
-	end
-	local owner = record.owner
-	local ownerPlot = owner and Plots.getFor(owner)
-	local slotIndex = ownerPlot and Plots.getFreeSlot(ownerPlot)
-	if owner and ownerPlot and slotIndex then
-		Conveyor.sendToPlot(record, ownerPlot, slotIndex)
-		if State.get(owner) ~= nil then
-			Economy.notify(owner, "Your " .. record.spawn.character.name .. " came back!")
-		end
-	else
-		Conveyor.remove(record)
-	end
-	Economy.notify(player, reason)
-end
-
--- The owner clicks a carried brainrot within range to yank it straight back.
-function Steal.tryYankBack(player: Player, record)
-	if record.state ~= "carried" then
+	local ownerCharacter = player.Character
+	local ownerRoot = ownerCharacter and ownerCharacter:FindFirstChild("HumanoidRootPart")
+	local carrierCharacter = carrier.Character
+	local carrierRoot = carrierCharacter and carrierCharacter:FindFirstChild("HumanoidRootPart")
+	if ownerRoot == nil or carrierRoot == nil then
 		return
 	end
-	if record.owner ~= player then
-		Economy.notify(player, "Only its owner can yank it back!")
+	if (ownerRoot.Position - carrierRoot.Position).Magnitude > Config.YANK_RANGE then
 		return
 	end
-	local state = State.get(player)
-	if not state then
+	freeCarrier(carrier)
+	local ownerPlot = Plots.plotOf(player)
+	local ownerState = State.get(player)
+	if ownerPlot == nil or ownerState == nil then
 		return
 	end
-	if os.clock() < state.yankCooldownUntil then
+	local slotIndex = Plots.freeSlot(ownerPlot)
+	if slotIndex == nil then
 		return
 	end
-	local carrier = record.carriedBy
-	if not carrier then
-		return
-	end
-	if distanceTo(player, record.model:GetPivot().Position) > Config.YANK_BACK_RANGE then
-		Economy.notify(player, "Too far away to yank it back!")
-		return
-	end
-	state.yankCooldownUntil = os.clock() + Config.YANK_BACK_COOLDOWN
-	local carrierState = State.get(carrier)
-	if carrierState and carrierState.carrying == record.id then
-		carrierState.carrying = nil
-		Economy.applyWalkSpeed(carrier)
-	end
-	Economy.notify(carrier, "YANKED BACK! " .. player.DisplayName .. " took their brainrot back.")
-	local ownerPlot = Plots.getFor(player)
-	local slotIndex = ownerPlot and Plots.getFreeSlot(ownerPlot)
-	if ownerPlot and slotIndex then
-		Conveyor.sendToPlot(record, ownerPlot, slotIndex)
-	else
-		Conveyor.remove(record)
-	end
+	placeOnSlot(record, player, ownerPlot, slotIndex)
+	ownerState.owned[record.id] = true
 end
 
 return Steal

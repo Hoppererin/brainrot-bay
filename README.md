@@ -1,41 +1,45 @@
 # Brainrot Bay
 
-[![make.fun · roblox-brainrot-01](https://make.fun/badge/roblox-brainrot-01.svg)](https://make.fun/bounty/roblox-brainrot-01?utm_source=github&utm_medium=readme&utm_campaign=roblox-brainrot-01)
-[![rank](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/rank.svg)](https://make.fun/bounty/roblox-brainrot-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=roblox-brainrot-01)
-[![reward](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/reward.svg)](https://make.fun/bounty/roblox-brainrot-01?utm_source=github&utm_medium=readme&utm_campaign=roblox-brainrot-01)
+[![Brainrot Bay — roblox-brainrot-01](https://make.fun/badge/roblox-brainrot-01.svg)](https://make.fun/bounty/roblox-brainrot-01)
+[![Rank](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/rank.svg)](https://make.fun/bounty/roblox-brainrot-01)
+[![Reward](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/reward.svg)](https://make.fun/bounty/roblox-brainrot-01)
 
-A 3D Roblox brainrot game: absurd meme characters ride a conveyor across a
-sunny island, you click one to buy it, it walks to your base and earns money
-every second. Steal from other players' bases (unless they locked them),
-outrun the tsunami that sweeps the map every few minutes, rebirth for a
-permanent income multiplier, and climb the ladder from Sir Toaster Crumb to
-The Last Brain Cell — 21 original characters across 7 rarities, with Golden,
-Diamond and Rainbow mutations.
+Brainrot Bay is a 3D Roblox game in the Steal-a-Brainrot genre: 21 original
+meme characters walk a conveyor belt across a 220-stud sand island, and you
+click one to buy it, keep it on your colour-coded base, and watch it earn
+money every second. Rarer brainrots earn more, mutations multiply the rate,
+and a tsunami sweeps the island every three minutes — so a catch is only
+safe once you dash it home. Steal from other bases, lock yours, buy Speed
+Boots and Income Boosts, and rebirth for a permanent +25% income per level.
 
-## Run it
+## How to run it
 
-```sh
-rojo build default.project.json --output game.rbxl
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-```
+Open `game.rbxl` in Roblox Studio and press Play. To rebuild the place
+from source instead, run `rojo build` (Rojo 7.7) in this directory — it
+writes `game.rbxl` from `src/` and `default.project.json`.
 
-Open `game.rbxl` in Roblox Studio to play it. `main.ts` (Node 22, standard
-library only) hands the game in: it copies `game.rbxl`, `src/`,
-`screenshots/` and `PLAY.json` to `/output` and writes `/output/dossier.json`
-with `vendor/makefun-roblox.ts`, the kit's copy, unchanged.
+## Layout
 
-- `src/shared/` — `Catalog.luau` (the 21 characters, rarities, mutations)
-  and `Config.luau` (every tuning number in one place).
-- `src/server/` — `State.luau` (the single state store), `Plots.luau`,
-  `Conveyor.luau`, `Economy.luau` (buy/sell/rebirth/upgrades), `Steal.luau`
-  (carry, yank-back, base lock), `Events.luau` (the tsunami),
-  `BrainrotFactory.luau` (builds each character from plain parts) and
-  `WorldBuilder.luau` (palms, coins, clouds, signs).
-- `src/client/` — `Game.client.luau` and `Hud.luau` (cash/income/rebirth bar,
-  Lock/Rebirth/Upgrades buttons, help panel, event banner).
-- `screenshots/` — captures of the game running in Roblox Studio; the first
-  by name is the game's thumbnail on Roblox.
+- `src/shared/` — `Config.luau` (every price, rate and timing) and
+  `Catalog.luau` (the 21 characters, 7 rarities, 3 mutations).
+- `src/server/` — one module per job: `State` (the single state store),
+  `Plots` (the eight bases), `Conveyor` (spawning and walking the belt),
+  `BrainrotFactory` (building each character's model), `Economy`
+  (buying, selling, rebirths, upgrades, the income tick), `Steal`
+  (carrying a stolen brainrot home), `Events` (the tsunami) and
+  `WorldBuilder` (palms, coins, clouds, signs, slot pads), plus
+  `init.server.luau` wiring them together.
+- `src/client/` — `Game.client.luau` boots the client and `Hud.luau`
+  draws the cash bar, buttons, panels and event banner.
+- `main.ts` — the hand-in program: it copies `game.rbxl`, `src/`,
+  `screenshots/` and `PLAY.json` to the output directory and writes
+  `dossier.json` with `buildDossier` from `vendor/makefun-roblox.ts`.
+- `screenshots/` — three captures of the game running in Roblox Studio.
+- `PLAY.json` — the published place's link (filled in once the
+  experience is published on Roblox).
 
----
+## Entered on make.fun
 
-<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=roblox-brainrot-01) · AI agents build software for cash rewards</sub>
+Entered on [make.fun](https://make.fun/bounty/roblox-brainrot-01) for the
+"Make the best AI Roblox brainrot game" bounty. Optional: earn referral
+rewards, a second way to make money — https://make.fun/r/dhj53q2r

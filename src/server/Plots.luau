@@ -1,59 +1,45 @@
--- Brainrot Bay: plots.
--- Eight bases around the island, one per player, each with six slots where
--- owned brainrots stand and earn. Plots are claimed in join order; a plot
--- knows its owner, its slots and whether it is locked.
+-- Brainrot Bay — base plots.
+-- Eight colour-coded pads in two rows. A player owns one plot; each plot
+-- holds six brainrots on its six slots. The layout (centres and slot
+-- offsets) comes from Config, so the world, the plots and the slot pads
+-- can never disagree about where a brainrot stands.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-
-local Config = require(ReplicatedStorage.Shared.Config)
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local State = require(script.Parent.State)
 
 local Plots = {}
-Plots.List = {} -- [plotId] = plot table
-Plots.ByPlayer = {} -- [Player] = plot table
 
--- Plot centres: four on the north side of the belt, four on the south.
--- Centres sit 50 studs from the belt (z = +/-45) so the belt stays clear.
-local CENTERS = {
-	{ -75, -45 }, { -25, -45 }, { 25, -45 }, { 75, -45 },
-	{ -75, 45 }, { -25, 45 }, { 25, 45 }, { 75, 45 },
+export type Plot = {
+	id: number,
+	center: Vector3,
+	color: Color3,
+	owner: Player?,
+	taken: { [number]: number }, -- [slotIndex] = record id
 }
 
-function Plots.build()
-	for plotId, center in ipairs(CENTERS) do
-		local cx, cz = center[1], center[2]
-		-- Six slots in two rows of three, on the plot floor.
-		local slots = {}
-		for row = 1, 2 do
-			for col = 1, 3 do
-				local x = cx - 7 + (col - 1) * 7
-				local z = cz - 3 + (row - 1) * 6
-				table.insert(slots, Vector3.new(x, 1.5, z))
-			end
-		end
-		-- The sign stands on the side facing the belt.
-		local signZ = cz + (cz < 0 and 8 or -8)
-		local plot = {
-			id = plotId,
-			center = Vector3.new(cx, 0, cz),
-			slots = slots,
-			taken = {}, -- [slotIndex] = brainrotId
+local plots: { Plot } = {}
+
+function Plots.init()
+	for _, def in ipairs(Config.PLOTS) do
+		plots[def.id] = {
+			id = def.id,
+			center = def.center,
+			color = Config.PLOT_COLORS[def.id],
 			owner = nil,
-			signPosition = Vector3.new(cx, 4, signZ),
-			signLabel = nil, -- filled in by WorldBuilder
-			floor = Workspace:FindFirstChild("PlotFloor" .. plotId),
+			taken = {},
 		}
-		Plots.List[plotId] = plot
 	end
 end
 
-function Plots.claimFor(player: Player)
-	for _, plot in ipairs(Plots.List) do
+-- Hands a joining player the first free plot, or nil when all eight are taken.
+function Plots.assign(player: Player): Plot?
+	for _, plot in ipairs(plots) do
 		if plot.owner == nil then
 			plot.owner = player
-			Plots.ByPlayer[player] = plot
-			if plot.signLabel then
-				plot.signLabel.Text = string.upper(player.DisplayName or player.Name) .. "'S BASE"
+			local state = State.get(player)
+			if state ~= nil then
+				state.plotId = plot.id
 			end
 			return plot
 		end
@@ -61,23 +47,33 @@ function Plots.claimFor(player: Player)
 	return nil
 end
 
-function Plots.release(player: Player)
-	local plot = Plots.ByPlayer[player]
-	if plot then
+-- Frees a leaving player's plot and forgets who owned it.
+function Plots.free(player: Player)
+	local state = State.get(player)
+	if state == nil or state.plotId == nil then
+		return
+	end
+	local plot = plots[state.plotId]
+	if plot ~= nil then
 		plot.owner = nil
-		Plots.ByPlayer[player] = nil
-		if plot.signLabel then
-			plot.signLabel.Text = "EMPTY PLOT"
-		end
 	end
 end
 
-function Plots.getFor(player: Player)
-	return Plots.ByPlayer[player]
+function Plots.plotOf(player: Player): Plot?
+	local state = State.get(player)
+	if state == nil or state.plotId == nil then
+		return nil
+	end
+	return plots[state.plotId]
 end
 
-function Plots.getFreeSlot(plot): number?
-	for i = 1, Config.SLOTS_PER_PLOT do
+function Plots.get(plotId: number): Plot?
+	return plots[plotId]
+end
+
+-- The first empty slot on a plot, or nil when the base is full.
+function Plots.freeSlot(plot: Plot): number?
+	for i = 1, #Config.SLOT_OFFSETS do
 		if plot.taken[i] == nil then
 			return i
 		end
@@ -85,23 +81,16 @@ function Plots.getFreeSlot(plot): number?
 	return nil
 end
 
--- Is a world position inside this plot's rectangle (the safe zone)?
-function Plots.isInside(plot, position: Vector3): boolean
-	local dx = math.abs(position.X - plot.center.X)
-	local dz = math.abs(position.Z - plot.center.Z)
-	return dx <= Config.PLOT_SIZE_X / 2 and dz <= Config.PLOT_SIZE_Z / 2
+-- Where a brainrot stands on its slot: the pad's top, plus its offset.
+-- Y sits just above the slot pad so the model's feet rest on the tile.
+function Plots.slotPosition(plot: Plot, slotIndex: number): Vector3
+	local offset = Config.SLOT_OFFSETS[slotIndex]
+	return Vector3.new(plot.center.X + offset.X, 1.6, plot.center.Z + offset.Z)
 end
 
--- Is a world position inside any plot, or on the spawn plaza?
-function Plots.isSafe(position: Vector3): boolean
-	for _, plot in ipairs(Plots.List) do
-		if Plots.isInside(plot, position) then
-			return true
-		end
-	end
-	local dx = math.abs(position.X)
-	local dz = math.abs(position.Z - 72)
-	return dx <= 14 and dz <= 14
+-- Whether a point is on a plot's pad (used to tell a base from open sand).
+function Plots.isOnPlot(plot: Plot, position: Vector3): boolean
+	return math.abs(position.X - plot.center.X) <= 13 and math.abs(position.Z - plot.center.Z) <= 11
 end
 
 return Plots

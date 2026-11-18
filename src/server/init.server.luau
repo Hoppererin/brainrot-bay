@@ -1,137 +1,94 @@
--- Brainrot Bay: server boot.
--- Wires every service together, hands out plots and leaderstats as players
--- join, and starts the conveyor, the income tick and the tsunami.
--- One script, one job: start the game.
+-- Brainrot Bay — server entrypoint.
+-- Wires the modules together: a joining player gets state, a plot and
+-- leaderstats; a leaving player frees their plot and drops whatever they
+-- were carrying; the client talks to the server only through the three
+-- request remotes, and the server validates every one of them.
 
-local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local State = require(script.Parent.State)
+local Plots = require(script.Parent.Plots)
+local Economy = require(script.Parent.Economy)
+local Conveyor = require(script.Parent.Conveyor)
+local Events = require(script.Parent.Events)
+local WorldBuilder = require(script.Parent.WorldBuilder)
 
-local Conveyor = require(script.Conveyor)
-local Economy = require(script.Economy)
-local Events = require(script.Events)
-local Plots = require(script.Plots)
-local State = require(script.State)
-local Steal = require(script.Steal)
-local WorldBuilder = require(script.WorldBuilder)
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-
--- Services hand each other the remotes and each other at boot, so no module
--- has to require a sibling that is still loading.
-Economy.init(Remotes, Conveyor)
-Steal.init(Remotes, Economy, Conveyor)
-Conveyor.init(Remotes, Economy)
-Events.init(Remotes, Economy)
-
-Plots.build()
-WorldBuilder.build(Plots.List)
-
--- Best-effort saving: in Studio without API access this just stays in memory.
-local store = nil
-pcall(function()
-	store = DataStoreService:GetDataStore("BrainrotBayV1")
-end)
-
-local function loadPlayer(player: Player)
-	local state = State.new(player)
-	if store then
-		pcall(function()
-			local saved = store:GetAsync("player_" .. tostring(player.UserId))
-			if saved and type(saved) == "table" then
-				state.cash = saved.cash or state.cash
-				state.rebirths = saved.rebirths or 0
-				if saved.upgrades then
-					state.upgrades.Speed = saved.upgrades.Speed or 0
-					state.upgrades.Income = saved.upgrades.Income or 0
-				end
-			end
-		end)
-	end
-	local plot = Plots.claimFor(player)
-	state.plotId = plot and plot.id or nil
-
-	local leaderstats = Instance.new("Folder")
-	leaderstats.Name = "leaderstats"
-	leaderstats.Parent = player
-	local cash = Instance.new("IntValue")
-	cash.Name = "Cash"
-	cash.Value = math.floor(state.cash)
-	cash.Parent = leaderstats
-	local income = Instance.new("IntValue")
-	income.Name = "Income"
-	income.Value = 0
-	income.Parent = leaderstats
-	local rebirths = Instance.new("IntValue")
-	rebirths.Name = "Rebirths"
-	rebirths.Value = state.rebirths
-	rebirths.Parent = leaderstats
-
-	Economy.applyWalkSpeed(player)
-	Remotes.Notify:FireClient(player, "Welcome to Brainrot Bay! Buy brainrots off the belt, base them, get rich!")
-end
-
-local function savePlayer(player: Player)
-	local state = State.get(player)
-	if not state or not store then
-		return
-	end
-	pcall(function()
-		store:SetAsync("player_" .. tostring(player.UserId), {
-			cash = math.floor(state.cash),
-			rebirths = state.rebirths,
-			upgrades = state.upgrades,
-		})
-	end)
-end
-
+-- A joining player: fresh state, the first free plot, leaderstats, spawn
+-- speed set, and a first HUD push so the bar is never empty.
 local function onPlayerAdded(player: Player)
-	loadPlayer(player)
-	player.CharacterAdded:Connect(function(character)
-		task.wait(0.5)
-		Economy.applyWalkSpeed(player)
+	local state = State.new(player)
+	Plots.assign(player)
+	Economy.setupPlayer(player)
+	player.CharacterAdded:Connect(function(character: Model)
+		local humanoid = character:WaitForChild("Humanoid")
+		;(humanoid :: Humanoid).WalkSpeed = State.walkSpeed(state)
+	end)
+	-- The spawn point sits on the spawn plaza (see the SpawnLocation).
+	task.spawn(function()
+		task.wait(1)
+		Economy.pushHud(player)
 	end)
 end
 
+-- A leaving player: their plot frees up, their state goes, and a
+-- brainrot they were carrying walks back to its owner's base.
 local function onPlayerRemoving(player: Player)
 	local state = State.get(player)
-	if state then
-		-- Owned brainrots leave with their owner.
-		for id in pairs(state.owned) do
-			Conveyor.remove(state.owned[id])
-		end
-		if state.carrying then
-			local record = Conveyor.Walking[state.carrying]
-			if record then
-				Steal.dropCarried(player, record, "The carrier left!")
+	if state ~= nil and state.carrying ~= nil then
+		local record = State.getRecord(state.carrying)
+		if record ~= nil and record.state == "carried" then
+			local owner = record.owner
+			if owner ~= nil then
+				local ownerPlot = Plots.plotOf(owner)
+				local ownerState = State.get(owner)
+				if ownerPlot ~= nil and ownerState ~= nil then
+					local slotIndex = Plots.freeSlot(ownerPlot)
+					if slotIndex ~= nil then
+						record.state = "owned"
+						record.owner = owner
+						record.plotId = ownerPlot.id
+						record.slotIndex = slotIndex
+						record.carrier = nil
+						ownerPlot.taken[slotIndex] = record.id
+						ownerState.owned[record.id] = true
+						local target = Plots.slotPosition(ownerPlot, slotIndex)
+						record.model:PivotTo(CFrame.new(target.X, target.Y + 1.2, target.Z))
+					end
+				end
 			end
 		end
 	end
-	savePlayer(player)
-	Plots.release(player)
+	Plots.free(player)
 	State.remove(player)
 end
 
+-- The client's three requests. Each one names a player the server checks
+-- and a validated action; the client never touches money or state itself.
+remotes.LockBase.OnServerEvent:Connect(function(player: Player)
+	Economy.lockBase(player)
+end)
+
+remotes.Rebirth.OnServerEvent:Connect(function(player: Player)
+	Economy.tryRebirth(player)
+end)
+
+remotes.BuyUpgrade.OnServerEvent:Connect(function(player: Player, kind: string)
+	Economy.buyUpgrade(player, kind)
+end)
+
 Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(onPlayerRemoving)
+
+-- Plots first: a player joining in the same frame as the server starts
+-- still needs a plot to be assigned to.
+Plots.init()
 for _, player in ipairs(Players:GetPlayers()) do
 	onPlayerAdded(player)
 end
 
--- Client requests: every one is validated again on the server.
--- The client only ever asks; a forged RemoteEvent call buys nothing.
-Remotes.LockBase.OnServerEvent:Connect(function(player: Player)
-	Steal.tryLock(player)
-end)
-Remotes.Rebirth.OnServerEvent:Connect(function(player: Player)
-	Economy.tryRebirth(player)
-end)
-Remotes.BuyUpgrade.OnServerEvent:Connect(function(player: Player, kind: string)
-	Economy.tryUpgrade(player, kind)
-end)
-
+WorldBuilder.build()
 Conveyor.start()
-Economy.start()
+Economy.startIncomeLoop()
 Events.start()
-
-print("Brainrot Bay is live: plots, conveyor, economy and tsunami running.")
