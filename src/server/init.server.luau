@@ -1,94 +1,112 @@
--- Brainrot Bay — server entrypoint.
--- Wires the modules together: a joining player gets state, a plot and
--- leaderstats; a leaving player frees their plot and drops whatever they
--- were carrying; the client talks to the server only through the three
--- request remotes, and the server validates every one of them.
+-- init.server.luau
+-- Server entrypoint for Brainrot Bay (build4, written from scratch).
+-- Builds the world, starts the conveyor, the tsunami clock and the income
+-- tick, claims a plot for every player who joins, and wires the remotes.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
 local State = require(script.Parent.State)
 local Plots = require(script.Parent.Plots)
-local Economy = require(script.Parent.Economy)
 local Conveyor = require(script.Parent.Conveyor)
+local Economy = require(script.Parent.Economy)
+local Steal = require(script.Parent.Steal)
 local Events = require(script.Parent.Events)
 local WorldBuilder = require(script.Parent.WorldBuilder)
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
--- A joining player: fresh state, the first free plot, leaderstats, spawn
--- speed set, and a first HUD push so the bar is never empty.
-local function onPlayerAdded(player: Player)
-	local state = State.new(player)
-	Plots.assign(player)
-	Economy.setupPlayer(player)
-	player.CharacterAdded:Connect(function(character: Model)
-		local humanoid = character:WaitForChild("Humanoid")
-		;(humanoid :: Humanoid).WalkSpeed = State.walkSpeed(state)
-	end)
-	-- The spawn point sits on the spawn plaza (see the SpawnLocation).
+-- World first: if this errors, nothing below runs, so it must be clean.
+WorldBuilder.build()
+Conveyor.start(Economy.handleClick)
+Steal.start()
+Events.start()
+task.spawn(Economy.tickLoop)
+
+local function setupPlayer(player)
+	local state = State.newPlayer(player)
+	local plotId = Plots.claim(player)
+	state.plotId = plotId
+
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	leaderstats.Parent = player
+	local cash = Instance.new("IntValue")
+	cash.Name = "Cash"
+	cash.Value = state.cash
+	cash.Parent = leaderstats
+	local income = Instance.new("IntValue")
+	income.Name = "Income"
+	income.Value = state.income
+	income.Parent = leaderstats
+	local rebirths = Instance.new("IntValue")
+	rebirths.Name = "Rebirths"
+	rebirths.Value = state.rebirths
+	rebirths.Parent = leaderstats
+
+	local function syncStats()
+		cash.Value = state.cash
+		income.Value = state.income
+		rebirths.Value = state.rebirths
+	end
 	task.spawn(function()
-		task.wait(1)
-		Economy.pushHud(player)
+		while player.Parent ~= nil do
+			task.wait(1)
+			syncStats()
+		end
+	end)
+
+	player.CharacterAdded:Connect(function(character)
+		local humanoid = character:WaitForChild("Humanoid")
+		humanoid.WalkSpeed = State.walkSpeed(player)
+		humanoid.Died:Connect(function()
+			Steal.dropCarry(player)
+		end)
 	end)
 end
 
--- A leaving player: their plot frees up, their state goes, and a
--- brainrot they were carrying walks back to its owner's base.
-local function onPlayerRemoving(player: Player)
+Players.PlayerAdded:Connect(setupPlayer)
+for _, player in ipairs(Players:GetPlayers()) do
+	setupPlayer(player)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	Steal.dropCarry(player)
 	local state = State.get(player)
-	if state ~= nil and state.carrying ~= nil then
-		local record = State.getRecord(state.carrying)
-		if record ~= nil and record.state == "carried" then
-			local owner = record.owner
-			if owner ~= nil then
-				local ownerPlot = Plots.plotOf(owner)
-				local ownerState = State.get(owner)
-				if ownerPlot ~= nil and ownerState ~= nil then
-					local slotIndex = Plots.freeSlot(ownerPlot)
-					if slotIndex ~= nil then
-						record.state = "owned"
-						record.owner = owner
-						record.plotId = ownerPlot.id
-						record.slotIndex = slotIndex
-						record.carrier = nil
-						ownerPlot.taken[slotIndex] = record.id
-						ownerState.owned[record.id] = true
-						local target = Plots.slotPosition(ownerPlot, slotIndex)
-						record.model:PivotTo(CFrame.new(target.X, target.Y + 1.2, target.Z))
-					end
-				end
+	if state ~= nil then
+		for recordId, record in pairs(state.owned) do
+			if record.model ~= nil then
+				record.model:Destroy()
 			end
+			State.removeRecord(recordId)
 		end
 	end
-	Plots.free(player)
+	Plots.release(player)
 	State.remove(player)
-end
-
--- The client's three requests. Each one names a player the server checks
--- and a validated action; the client never touches money or state itself.
-remotes.LockBase.OnServerEvent:Connect(function(player: Player)
-	Economy.lockBase(player)
 end)
 
-remotes.Rebirth.OnServerEvent:Connect(function(player: Player)
-	Economy.tryRebirth(player)
+remotes.LockBase.OnServerEvent:Connect(function(player)
+	local state = State.get(player)
+	if state == nil then
+		return
+	end
+	local now = os.time()
+	if now < state.lockCooldownUntil then
+		Economy.notify(player, "Lock is cooling down for " .. tostring(state.lockCooldownUntil - now) .. "s.")
+		return
+	end
+	state.lockUntil = now + Config.LOCK_DURATION
+	state.lockCooldownUntil = now + Config.LOCK_COOLDOWN
+	Economy.notify(player, "Base locked for " .. tostring(Config.LOCK_DURATION) .. " seconds!")
 end)
 
-remotes.BuyUpgrade.OnServerEvent:Connect(function(player: Player, kind: string)
-	Economy.buyUpgrade(player, kind)
+remotes.Rebirth.OnServerEvent:Connect(function(player)
+	Economy.rebirth(player)
 end)
 
-Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(onPlayerRemoving)
-
--- Plots first: a player joining in the same frame as the server starts
--- still needs a plot to be assigned to.
-Plots.init()
-for _, player in ipairs(Players:GetPlayers()) do
-	onPlayerAdded(player)
-end
-
-WorldBuilder.build()
-Conveyor.start()
-Economy.startIncomeLoop()
-Events.start()
+remotes.BuyUpgrade.OnServerEvent:Connect(function(player, kind)
+	if kind == "Speed" or kind == "Income" then
+		Economy.buyUpgrade(player, kind)
+	end
+end)

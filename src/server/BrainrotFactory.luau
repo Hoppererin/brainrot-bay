@@ -1,222 +1,221 @@
--- Brainrot Bay — the brainrot factory.
--- Builds a brainrot's model from plain parts only: a blocky body, a belly,
--- two eyes, feet, one head accessory, and a floating label with its name,
--- rarity and $/s. A mutation tints the body its own colour and names
--- itself on the label's rarity line.
---
--- The label is kept narrow on purpose (110 x 44, small text): on the belt
--- the brainrots walk in a row, and a wide label from one swallows its
--- neighbour's, so from the conveyor the whole row reads as one smeared
--- band. Narrow labels stay readable from up close and stop colliding.
+-- BrainrotFactory.luau
+-- Builds the 3D model of one brainrot from plain parts (build4, from scratch).
+-- Body + head + one accessory piece, plus a floating billboard with the
+-- name, the rarity and the $/s (with its price). No meshes, no assets.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Catalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Catalog"))
+local Catalog = require(ReplicatedStorage.Shared.Catalog)
 
-local BrainrotFactory = {}
+local Factory = {}
 
--- Label size (fix: ~30% narrower than a full-width label, text one step down).
-local LABEL_WIDTH = 110
-local LABEL_HEIGHT = 44
+local BILLBOARD_WIDTH = 110
+local BILLBOARD_HEIGHT = 44
 local NAME_TEXT_SIZE = 12
 local RARITY_TEXT_SIZE = 10
 local RATE_TEXT_SIZE = 11
 
-local function makePart(name: string, size: Vector3, color: Color3, material: Enum.Material?): Part
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Size = size
-	part.Color = color
-	part.Material = material or Enum.Material.SmoothPlastic
-	part.Anchored = true
-	part.CanCollide = false
-	part.TopSurface = Enum.SurfaceType.Smooth
-	part.BottomSurface = Enum.SurfaceType.Smooth
-	return part
+local function makeLabel(parent, yOffset, height, textSize, color)
+	local label = Instance.new("TextLabel")
+	label.Name = "Label" .. tostring(yOffset)
+	label.Size = UDim2.new(1, 0, 0, height)
+	label.Position = UDim2.new(0, 0, 0, yOffset)
+	label.BackgroundTransparency = 1
+	label.Text = ""
+	label.TextSize = textSize
+	label.TextColor3 = color
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = false
+	label.Parent = parent
+	return label
 end
 
--- One head accessory per name: a single distinctive part (or a pair for
--- wings and glasses) that sits on the body and reads at a glance.
-local function addAccessory(model: Model, accessory: string, scale: number, root: Part)
-	local s = scale
-	local top = root.Size.Y / 2
-	if accessory == "toaster" then
-		local slot = makePart("Toaster", Vector3.new(1.4 * s, 0.7 * s, 1.0 * s), Color3.fromRGB(180, 180, 190), Enum.Material.Metal)
-		slot.CFrame = root.CFrame * CFrame.new(0, top + 0.35 * s, 0)
-		slot.Parent = model
-	elseif accessory == "crown" then
-		local band = makePart("Crown", Vector3.new(1.6 * s, 0.4 * s, 1.6 * s), Color3.fromRGB(255, 215, 0), Enum.Material.Neon)
-		band.CFrame = root.CFrame * CFrame.new(0, top + 0.2 * s, 0)
-		band.Parent = model
-		for i = -1, 1 do
-			local spike = makePart("Spike", Vector3.new(0.3 * s, 0.6 * s, 0.3 * s), Color3.fromRGB(255, 215, 0), Enum.Material.Neon)
-			spike.CFrame = root.CFrame * CFrame.new(i * 0.55 * s, top + 0.6 * s, 0)
-			spike.Parent = model
-		end
-	elseif accessory == "hat" then
-		local brim = makePart("HatBrim", Vector3.new(2.2 * s, 0.25 * s, 2.2 * s), Color3.fromRGB(90, 60, 30))
-		brim.CFrame = root.CFrame * CFrame.new(0, top + 0.1 * s, 0)
-		brim.Parent = model
-		local dome = makePart("HatTop", Vector3.new(1.2 * s, 0.9 * s, 1.2 * s), Color3.fromRGB(90, 60, 30))
-		dome.CFrame = root.CFrame * CFrame.new(0, top + 0.6 * s, 0)
-		dome.Parent = model
-	elseif accessory == "beret" then
-		local beret = makePart("Beret", Vector3.new(1.8 * s, 0.5 * s, 1.8 * s), Color3.fromRGB(200, 60, 90))
-		beret.CFrame = root.CFrame * CFrame.new(0.2 * s, top + 0.25 * s, 0)
-		beret.Parent = model
-	elseif accessory == "wings" then
-		for _, side in ipairs({ -1, 1 }) do
-			local wing = makePart("Wing", Vector3.new(0.3 * s, 1.2 * s, 1.6 * s), Color3.fromRGB(255, 255, 255), Enum.Material.Neon)
-			wing.CFrame = root.CFrame * CFrame.new(side * (root.Size.X / 2 + 0.15 * s), 0.3 * s, -0.3 * s)
-			wing.Parent = model
-		end
-	elseif accessory == "glasses" then
-		for _, side in ipairs({ -1, 1 }) do
-			local lens = makePart("Lens", Vector3.new(0.6 * s, 0.6 * s, 0.2 * s), Color3.fromRGB(20, 20, 30), Enum.Material.Glass)
-			lens.CFrame = root.CFrame * CFrame.new(side * 0.5 * s, 0.35 * s, root.Size.Z / 2 + 0.1 * s)
-			lens.Parent = model
-		end
-	elseif accessory == "cape" then
-		local cape = makePart("Cape", Vector3.new(1.8 * s, 1.6 * s, 0.25 * s), Color3.fromRGB(160, 30, 30))
-		cape.CFrame = root.CFrame * CFrame.new(0, 0.1 * s, -(root.Size.Z / 2 + 0.15 * s))
-		cape.Parent = model
-	elseif accessory == "flower" then
-		local bloom = makePart("Flower", Vector3.new(0.8 * s, 0.4 * s, 0.8 * s), Color3.fromRGB(255, 120, 200), Enum.Material.Neon)
-		bloom.CFrame = root.CFrame * CFrame.new(root.Size.X / 2 - 0.2 * s, top + 0.2 * s, 0.2 * s)
-		bloom.Parent = model
-	elseif accessory == "helmet" then
-		local helm = makePart("Helmet", Vector3.new(2.0 * s, 0.9 * s, 2.0 * s), Color3.fromRGB(60, 120, 60), Enum.Material.Metal)
-		helm.CFrame = root.CFrame * CFrame.new(0, top + 0.2 * s, 0)
-		helm.Parent = model
-	elseif accessory == "disco" then
-		local ball = makePart("DiscoBall", Vector3.new(0.9 * s, 0.9 * s, 0.9 * s), Color3.fromRGB(220, 220, 240), Enum.Material.Metal)
-		ball.Shape = Enum.PartType.Ball
-		ball.CFrame = root.CFrame * CFrame.new(0, top + 0.6 * s, 0)
-		ball.Parent = model
-	elseif accessory == "bubble" then
-		local bubble = makePart("Bubble", Vector3.new(1.1 * s, 1.1 * s, 1.1 * s), Color3.fromRGB(180, 230, 255), Enum.Material.Glass)
-		bubble.Shape = Enum.PartType.Ball
-		bubble.CFrame = root.CFrame * CFrame.new(0, top + 0.7 * s, 0)
-		bubble.Parent = model
-	elseif accessory == "antenna" then
-		local rod = makePart("Antenna", Vector3.new(0.2 * s, 1.0 * s, 0.2 * s), Color3.fromRGB(60, 60, 60), Enum.Material.Metal)
-		rod.CFrame = root.CFrame * CFrame.new(0, top + 0.5 * s, 0)
-		rod.Parent = model
-		local tip = makePart("AntennaTip", Vector3.new(0.5 * s, 0.5 * s, 0.5 * s), Color3.fromRGB(255, 80, 80), Enum.Material.Neon)
-		tip.Shape = Enum.PartType.Ball
-		tip.CFrame = root.CFrame * CFrame.new(0, top + 1.15 * s, 0)
-		tip.Parent = model
-	elseif accessory == "lightning" then
-		local bolt = makePart("Bolt", Vector3.new(0.5 * s, 1.2 * s, 0.3 * s), Color3.fromRGB(255, 230, 0), Enum.Material.Neon)
-		bolt.CFrame = root.CFrame * CFrame.new(0, top + 0.6 * s, 0)
-		bolt.Parent = model
-	elseif accessory == "clock" then
-		local face = makePart("Clock", Vector3.new(1.0 * s, 1.0 * s, 0.3 * s), Color3.fromRGB(240, 240, 240))
-		face.CFrame = root.CFrame * CFrame.new(0, top + 0.5 * s, 0)
-		face.Parent = model
-	elseif accessory == "chefhat" then
-		local chef = makePart("ChefHat", Vector3.new(1.5 * s, 0.9 * s, 1.5 * s), Color3.fromRGB(255, 255, 255))
-		chef.CFrame = root.CFrame * CFrame.new(0, top + 0.45 * s, 0)
-		chef.Parent = model
-	elseif accessory == "halo" then
-		local halo = makePart("Halo", Vector3.new(1.6 * s, 0.3 * s, 1.6 * s), Color3.fromRGB(255, 240, 150), Enum.Material.Neon)
-		halo.CFrame = root.CFrame * CFrame.new(0, top + 0.7 * s, 0)
-		halo.Parent = model
-	elseif accessory == "tophat" then
-		local brim = makePart("TopBrim", Vector3.new(2.0 * s, 0.25 * s, 2.0 * s), Color3.fromRGB(30, 30, 40))
-		brim.CFrame = root.CFrame * CFrame.new(0, top + 0.1 * s, 0)
-		brim.Parent = model
-		local topPiece = makePart("TopHat", Vector3.new(1.1 * s, 1.2 * s, 1.1 * s), Color3.fromRGB(30, 30, 40))
-		topPiece.CFrame = root.CFrame * CFrame.new(0, top + 0.7 * s, 0)
-		topPiece.Parent = model
+local function makeAccessory(kind, head, bodyColor)
+	local piece = Instance.new("Part")
+	piece.Name = "Accessory"
+	piece.Anchored = true
+	piece.CanCollide = false
+	piece.Material = Enum.Material.SmoothPlastic
+	if kind == "Crown" or kind == "Tiara" then
+		piece.Size = Vector3.new(1.6, 0.5, 1.6)
+		piece.Color = Color3.fromRGB(255, 215, 0)
+		piece.Position = head.Position + Vector3.new(0, 1.1, 0)
+	elseif kind == "WizardHat" then
+		piece.Size = Vector3.new(1.4, 1.4, 1.4)
+		piece.Color = Color3.fromRGB(120, 60, 200)
+		piece.Position = head.Position + Vector3.new(0, 1.3, 0)
+	elseif kind == "Helmet" then
+		piece.Size = Vector3.new(1.9, 0.9, 1.9)
+		piece.Color = Color3.fromRGB(90, 90, 110)
+		piece.Position = head.Position + Vector3.new(0, 0.9, 0)
+	elseif kind == "Halo" then
+		piece.Size = Vector3.new(1.8, 0.3, 1.8)
+		piece.Color = Color3.fromRGB(255, 240, 150)
+		piece.Material = Enum.Material.Neon
+		piece.Position = head.Position + Vector3.new(0, 1.5, 0)
+	elseif kind == "Sombrero" then
+		piece.Size = Vector3.new(2.6, 0.3, 2.6)
+		piece.Color = Color3.fromRGB(200, 160, 60)
+		piece.Position = head.Position + Vector3.new(0, 0.9, 0)
+	elseif kind == "Turban" then
+		piece.Size = Vector3.new(1.8, 0.8, 1.8)
+		piece.Color = Color3.fromRGB(240, 240, 240)
+		piece.Position = head.Position + Vector3.new(0, 0.9, 0)
+	elseif kind == "Wings" then
+		piece.Size = Vector3.new(2.6, 0.2, 1.0)
+		piece.Color = Color3.fromRGB(255, 255, 255)
+		piece.Position = head.Position + Vector3.new(0, 0.2, 0)
+	elseif kind == "Cape" then
+		piece.Size = Vector3.new(1.8, 1.6, 0.2)
+		piece.Color = Color3.fromRGB(200, 30, 30)
+		piece.Position = head.Position + Vector3.new(0, -0.4, -0.9)
+	elseif kind == "Glasses" then
+		piece.Size = Vector3.new(1.7, 0.4, 0.4)
+		piece.Color = Color3.fromRGB(30, 30, 30)
+		piece.Position = head.Position + Vector3.new(0, 0.2, 0.9)
+	elseif kind == "Monocle" then
+		piece.Size = Vector3.new(0.6, 0.6, 0.2)
+		piece.Color = Color3.fromRGB(255, 215, 0)
+		piece.Material = Enum.Material.Neon
+		piece.Position = head.Position + Vector3.new(0.5, 0.2, 0.9)
+	elseif kind == "Bow" then
+		piece.Size = Vector3.new(1.2, 0.5, 0.3)
+		piece.Color = Color3.fromRGB(255, 80, 140)
+		piece.Position = head.Position + Vector3.new(0, 1.0, 0)
+	elseif kind == "Fan" then
+		piece.Size = Vector3.new(0.3, 1.2, 1.4)
+		piece.Color = Color3.fromRGB(180, 120, 200)
+		piece.Position = head.Position + Vector3.new(1.0, 0, 0)
+	elseif kind == "Beret" then
+		piece.Size = Vector3.new(1.6, 0.4, 1.6)
+		piece.Color = Color3.fromRGB(60, 60, 120)
+		piece.Position = head.Position + Vector3.new(0, 1.0, 0)
+	elseif kind == "Bowl" then
+		piece.Size = Vector3.new(1.8, 0.5, 1.8)
+		piece.Color = Color3.fromRGB(255, 255, 255)
+		piece.Position = head.Position + Vector3.new(0, 1.0, 0)
+	elseif kind == "Sprinkles" then
+		piece.Size = Vector3.new(1.7, 0.3, 1.7)
+		piece.Color = Color3.fromRGB(255, 120, 200)
+		piece.Position = head.Position + Vector3.new(0, 1.0, 0)
+	else -- "Hat" and anything else: a plain cap
+		piece.Size = Vector3.new(1.7, 0.5, 1.7)
+		piece.Color = bodyColor
+		piece.Position = head.Position + Vector3.new(0, 1.0, 0)
 	end
+	return piece
 end
 
--- The floating label: name on top, rarity in the middle, $/s and price at
--- the bottom. Narrow, small text, always on top so it reads from the belt.
-local function addLabel(model: Model, character, mutation: any, root: Part)
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "Label"
-	gui.Size = UDim2.new(0, LABEL_WIDTH, 0, LABEL_HEIGHT)
-	gui.StudsOffsetWorldSpace = Vector3.new(0, 3.4 * character.scale, 0)
-	gui.AlwaysOnTop = true
-	gui.LightInfluence = 0
-	gui.Parent = root
-
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(1, 0, 0, 16)
-	nameLabel.Position = UDim2.new(0, 0, 0, 0)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Text = character.name
-	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	nameLabel.TextStrokeTransparency = 0.2
-	nameLabel.TextScaled = false
-	nameLabel.TextSize = NAME_TEXT_SIZE
-	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.Parent = gui
-
-	local rarityInfo = Catalog.RARITIES[character.rarity]
-	local rarityText = character.rarity
-	if mutation ~= nil then
-		rarityText = character.rarity .. " • " .. mutation.name
+-- Build a model for a record. `onClick` is called as onClick(player, record)
+-- when a player clicks the brainrot. Returns the model.
+function Factory.create(record, onClick)
+	local character = nil
+	for _, entry in ipairs(Catalog.CHARACTERS) do
+		if entry.name == record.charName then
+			character = entry
+			break
+		end
 	end
-	local rarityLabel = Instance.new("TextLabel")
-	rarityLabel.Size = UDim2.new(1, 0, 0, 13)
-	rarityLabel.Position = UDim2.new(0, 0, 0, 15)
-	rarityLabel.BackgroundTransparency = 1
-	rarityLabel.Text = rarityText
-	rarityLabel.TextColor3 = rarityInfo.color
-	rarityLabel.TextStrokeTransparency = 0.2
-	rarityLabel.TextSize = RARITY_TEXT_SIZE
-	rarityLabel.Font = Enum.Font.GothamBold
-	rarityLabel.Parent = gui
-
-	local rate = Catalog.getEffectiveRate(character, mutation)
-	local price = Catalog.getPrice(character, mutation)
-	local rateLabel = Instance.new("TextLabel")
-	rateLabel.Size = UDim2.new(1, 0, 0, 15)
-	rateLabel.Position = UDim2.new(0, 0, 0, 28)
-	rateLabel.BackgroundTransparency = 1
-	rateLabel.Text = string.format("$%d/s • $%d", rate, price)
-	rateLabel.TextColor3 = Color3.fromRGB(120, 255, 120)
-	rateLabel.TextStrokeTransparency = 0.2
-	rateLabel.TextSize = RATE_TEXT_SIZE
-	rateLabel.Font = Enum.Font.GothamBold
-	rateLabel.Parent = gui
-end
-
--- Builds the whole model at the origin; the caller moves it where it walks.
-function BrainrotFactory.create(character, mutation: any): Model
-	local s = character.scale
-	local bodyColor = character.body
-	if mutation ~= nil then
-		bodyColor = mutation.color
+	if character == nil then
+		return nil
 	end
 
+	local scale = character.size
 	local model = Instance.new("Model")
-	model.Name = character.name
+	model.Name = record.charName
+	model:SetAttribute("Scale", scale)
 
-	local root = makePart("Root", Vector3.new(2.4 * s, 2.4 * s, 2.4 * s), bodyColor)
-	root.CFrame = CFrame.new(0, 1.2 * s, 0)
-	root.Parent = model
-	model.PrimaryPart = root
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Size = Vector3.new(2 * scale, 2 * scale, 2 * scale)
+	body.Color = character.body
+	body.Material = Enum.Material.SmoothPlastic
+	body.Anchored = true
+	body.CanCollide = false
+	body.Position = Vector3.new(0, 1 * scale, 0)
+	body.Parent = model
 
-	local belly = makePart("Belly", Vector3.new(1.6 * s, 1.4 * s, 0.4 * s), character.belly)
-	belly.CFrame = root.CFrame * CFrame.new(0, -0.3 * s, 1.15 * s)
-	belly.Parent = model
+	local head = Instance.new("Part")
+	head.Name = "Head"
+	head.Size = Vector3.new(1.6 * scale, 1.6 * scale, 1.6 * scale)
+	head.Color = character.accent
+	head.Material = Enum.Material.SmoothPlastic
+	head.Anchored = true
+	head.CanCollide = false
+	head.Position = Vector3.new(0, 2.6 * scale, 0)
+	head.Parent = model
 
-	for _, side in ipairs({ -1, 1 }) do
-		local eye = makePart("Eye", Vector3.new(0.35 * s, 0.5 * s, 0.2 * s), Color3.fromRGB(20, 20, 20))
-		eye.CFrame = root.CFrame * CFrame.new(side * 0.5 * s, 0.4 * s, 1.25 * s)
-		eye.Parent = model
-		local foot = makePart("Foot", Vector3.new(0.7 * s, 0.4 * s, 1.0 * s), Color3.fromRGB(40, 40, 40))
-		foot.CFrame = root.CFrame * CFrame.new(side * 0.55 * s, -1.35 * s, 0.2 * s)
-		foot.Parent = model
+	local accessory = makeAccessory(character.accessory, head, character.body)
+	accessory.Parent = model
+
+	if record.mutation ~= nil then
+		local tintColor = Color3.fromRGB(255, 215, 0)
+		for _, mutation in ipairs(Catalog.MUTATIONS) do
+			if mutation.name == record.mutation then
+				tintColor = mutation.color
+			end
+		end
+		local tint = Instance.new("Part")
+		tint.Name = "MutationTint"
+		tint.Size = Vector3.new(2.2 * scale, 0.4 * scale, 2.2 * scale)
+		tint.Color = tintColor
+		tint.Material = Enum.Material.Neon
+		tint.Anchored = true
+		tint.CanCollide = false
+		tint.Position = Vector3.new(0, 0.3 * scale, 0)
+		tint.Parent = model
 	end
 
-	addAccessory(model, character.accessory, s, root)
-	addLabel(model, character, mutation, root)
+	model.PrimaryPart = body
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "Label"
+	billboard.Size = UDim2.fromOffset(BILLBOARD_WIDTH, BILLBOARD_HEIGHT)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, 4.2 * scale, 0)
+	billboard.AlwaysOnTop = false
+	billboard.Parent = model
+
+	local nameLabel = makeLabel(billboard, 0, 12, NAME_TEXT_SIZE, Color3.fromRGB(255, 255, 255))
+	nameLabel.Name = "NameLabel"
+	nameLabel.Text = record.charName
+	local rarityLabel = makeLabel(billboard, 12, 10, RARITY_TEXT_SIZE, Catalog.rarityColor(record.rarity))
+	rarityLabel.Name = "RarityLabel"
+	rarityLabel.Text = record.rarity
+	if record.mutation ~= nil then
+		rarityLabel.Text = record.mutation .. " " .. record.rarity
+	end
+	local rateLabel = makeLabel(billboard, 22, 11, RATE_TEXT_SIZE, Color3.fromRGB(120, 255, 120))
+	rateLabel.Name = "RateLabel"
+	rateLabel.Text = "$" .. tostring(record.rate * record.mult) .. "/s"
+	local priceLabel = makeLabel(billboard, 33, 11, RATE_TEXT_SIZE, Color3.fromRGB(255, 220, 100))
+	priceLabel.Name = "PriceLabel"
+	priceLabel.Text = "$" .. tostring(Catalog.getPrice(record))
+
+	local click = Instance.new("ClickDetector")
+	click.Name = "BuyClick"
+	click.MaxActivationDistance = 32
+	click.MouseClick:Connect(function(player)
+		if onClick ~= nil then
+			onClick(player, record)
+		end
+	end)
+	click.Parent = model
 
 	return model
 end
 
-return BrainrotFactory
+-- Refresh the billboard of a model after the record changed.
+function Factory.refreshLabel(model, record)
+	local billboard = model:FindFirstChild("Label")
+	if billboard == nil then
+		return
+	end
+	for _, child in ipairs(billboard:GetChildren()) do
+		if child:IsA("TextLabel") and child.Name == "RateLabel" then
+			child.Text = "$" .. tostring(record.rate * record.mult) .. "/s"
+		elseif child:IsA("TextLabel") and child.Name == "PriceLabel" then
+			child.Text = "$" .. tostring(Catalog.getPrice(record))
+		end
+	end
+end
+
+return Factory

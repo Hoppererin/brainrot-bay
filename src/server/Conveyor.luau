@@ -1,166 +1,140 @@
--- Brainrot Bay — the conveyor belt.
--- Brainrots spawn at the portal, walk the belt west to east, and despawn
--- at the exit arch. Clicking one buys it when it is walking, tries a
--- steal when it belongs to another base, and yanks it back when it is
--- being carried away from yours.
+-- Conveyor.luau
+-- The belt: brainrots spawn at the purple portal, walk east, and leave
+-- through the green exit unless a player buys one (build4, from scratch).
+-- The click handler is injected by init (Economy.handleClick) so this
+-- module never requires Economy: no circular requires.
 
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
-local Catalog = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Catalog"))
+local Config = require(ReplicatedStorage.Shared.Config)
+local Catalog = require(ReplicatedStorage.Shared.Catalog)
 local State = require(script.Parent.State)
-local Economy = require(script.Parent.Economy)
-local Steal = require(script.Parent.Steal)
 local Plots = require(script.Parent.Plots)
-local BrainrotFactory = require(script.Parent.BrainrotFactory)
+local Factory = require(script.Parent.BrainrotFactory)
 
 local Conveyor = {}
 
-local walking: { State.BrainrotRecord } = {}
+local walking = {} -- [recordId] = { record, model, x }
+local nextId = 1
+local clickHandler = nil
 
-local function removeFromWalking(record: State.BrainrotRecord)
-	for i, other in ipairs(walking) do
-		if other == record then
-			table.remove(walking, i)
-			return
-		end
-	end
-end
-
--- Spawns one brainrot at the portal: a weighted character, a rolled
--- mutation, a model from the factory, and a ClickDetector on its root.
 local function spawnOne()
-	local character = Catalog.randomCharacter()
+	local character = Catalog.rollCharacter()
 	local mutation = Catalog.rollMutation()
-	local model = BrainrotFactory.create(character, mutation)
-	model.Parent = workspace
-	model:PivotTo(CFrame.new(Config.BELT_START_X, Config.BELT_Y, Config.BELT_Z))
-
-	local record: State.BrainrotRecord = {
-		id = 0,
-		character = character,
-		mutation = mutation,
-		model = model,
-		state = "walking",
+	local record = {
+		id = nextId,
+		charName = character.name,
+		rarity = character.rarity,
+		rate = character.rate,
+		mutation = nil,
+		mult = 1,
+		plotId = 0,
+		slot = 0,
 		owner = nil,
-		plotId = nil,
-		slotIndex = nil,
-		carrier = nil,
-		progress = 0,
+		model = nil,
+		carried = false,
 	}
+	if mutation ~= nil then
+		record.mutation = mutation.name
+		record.mult = mutation.mult
+	end
+	nextId += 1
 	State.addRecord(record)
-	table.insert(walking, record)
 
-	local detector = Instance.new("ClickDetector")
-	detector.MaxActivationDistance = 32
-	detector.MouseClick:Connect(function(player: Player)
-		Conveyor.onClicked(player, record)
-	end)
-	detector.Parent = model.PrimaryPart
-
-	-- A gentle bob while it walks, so the belt reads as alive. The loop
-	-- stops itself the moment the brainrot is bought or despawns.
-	task.spawn(function()
-		local t = 0
-		while record.state == "walking" and model.Parent do
-			t += 0.1
-			local bob = math.sin(t * 3) * 0.3
-			local base = model:GetPivot().Position
-			model:PivotTo(CFrame.new(base.X, Config.BELT_Y + bob, base.Z))
-			task.wait(0.1)
+	local model = Factory.create(record, function(player, clicked)
+		if clickHandler ~= nil then
+			clickHandler(player, clicked)
 		end
 	end)
-end
-
--- Walks one brainrot along the belt until it is bought or reaches the exit.
-local function walkLoop(record: State.BrainrotRecord)
-	task.spawn(function()
-		while record.state == "walking" and record.model.Parent do
-			local dt = task.wait(0.05)
-			local pivot = record.model:GetPivot()
-			local nextX = pivot.X + Config.BELT_SPEED * dt
-			if nextX >= Config.BELT_END_X then
-				Conveyor.despawn(record)
-				return
-			end
-			record.model:PivotTo(CFrame.new(nextX, pivot.Y, pivot.Z))
-			record.progress = nextX - Config.BELT_START_X
-		end
-	end)
-end
-
--- Removes a walker that reached the exit: model gone, record forgotten.
-function Conveyor.despawn(record: State.BrainrotRecord)
-	if record.state ~= "walking" then
+	if model == nil then
+		State.removeRecord(record.id)
 		return
 	end
-	record.state = "gone"
-	removeFromWalking(record)
-	State.removeRecord(record.id)
-	record.model:Destroy()
+	record.model = model
+	model:PivotTo(CFrame.new(Config.BELT_START_X, Config.BELT_Y, Config.BELT_Z))
+	model.Parent = workspace
+	walking[record.id] = { record = record, model = model, x = Config.BELT_START_X }
 end
 
--- Clicking a brainrot does the thing its state asks for: buy it while it
--- walks, steal it while it sits on another base, yank it back while it
--- is being carried away from yours.
-function Conveyor.onClicked(player: Player, record: State.BrainrotRecord)
-	if record.state == "walking" then
-		-- tryBuy takes the money and books the slot; the belt then walks
-		-- the brainrot home. It returns nothing when the buy is refused.
-		local plot, slotIndex = Economy.tryBuy(player, record)
-		if plot ~= nil and slotIndex ~= nil then
-			Conveyor.sendToPlot(record, plot, slotIndex)
+local function despawn(recordId)
+	local walker = walking[recordId]
+	if walker == nil then
+		return
+	end
+	walking[recordId] = nil
+	if walker.model ~= nil then
+		walker.model:Destroy()
+	end
+	State.removeRecord(recordId)
+end
+
+local function moveStep(dt)
+	for recordId, walker in pairs(walking) do
+		local nextX = walker.x + Config.BELT_SPEED * dt
+		if nextX >= Config.BELT_END_X then
+			despawn(recordId)
+		else
+			walker.x = nextX
+			walker.model:PivotTo(CFrame.new(nextX, Config.BELT_Y, Config.BELT_Z))
 		end
-	elseif record.state == "owned" then
-		Steal.trySteal(player, record)
-	elseif record.state == "carried" then
-		Steal.tryYankBack(player, record)
 	end
 end
 
--- Sends a bought brainrot to its slot on its owner's plot, walking the
--- last leg so the buy reads on screen, then plants it there.
-function Conveyor.sendToPlot(record: State.BrainrotRecord, plot: Plots.Plot, slotIndex: number)
-	record.state = "owned"
-	record.plotId = plot.id
-	record.slotIndex = slotIndex
-	plot.taken[slotIndex] = record.id
-	removeFromWalking(record)
+-- Take a walking brainrot off the belt (a purchase is in progress).
+-- Returns the model, or nil when the brainrot is already gone.
+function Conveyor.take(record)
+	local walker = walking[record.id]
+	if walker == nil then
+		return nil
+	end
+	walking[record.id] = nil
+	return walker.model
+end
 
-	local target = Plots.slotPosition(plot, slotIndex)
+-- Walk a bought brainrot from the belt to its slot in its owner's plot.
+function Conveyor.deliver(record)
 	local model = record.model
+	if model == nil then
+		return
+	end
+	local plot = Plots.get(record.plotId)
+	if plot == nil then
+		return
+	end
+	local target = Plots.slotPosition(plot, record.slot)
+	local scale = model:GetAttribute("Scale")
+	if scale == nil then
+		scale = 1
+	end
+	local from = model:GetPivot().Position
+	local to = target + Vector3.new(0, 1 + scale, 0)
 	task.spawn(function()
-		local from = model:GetPivot().Position
-		local height = 2.4 * record.character.scale
-		local goal = Vector3.new(target.X, target.Y + height / 2, target.Z)
-		for step = 1, 20 do
-			if record.state ~= "owned" or not model.Parent then
-				return
-			end
-			local alpha = step / 20
-			local pos = from:Lerp(goal, alpha)
-			model:PivotTo(CFrame.new(pos.X, pos.Y + math.sin(alpha * math.pi) * 1.5, pos.Z))
+		local steps = 24
+		for step = 1, steps do
+			local alpha = step / steps
+			local pos = from:Lerp(to, alpha)
+			model:PivotTo(CFrame.new(pos))
 			task.wait(0.05)
 		end
-		if record.state == "owned" and model.Parent then
-			model:PivotTo(CFrame.new(goal))
-		end
+		model:PivotTo(CFrame.new(to))
 	end)
 end
 
--- The spawn loop: a new brainrot every few seconds while the belt has room.
-function Conveyor.start()
+function Conveyor.start(onClick)
+	clickHandler = onClick
 	task.spawn(function()
 		while true do
 			task.wait(Config.SPAWN_INTERVAL)
-			if #walking < Config.BELT_MAX_WALKING then
+			local count = 0
+			for _, _ in pairs(walking) do
+				count += 1
+			end
+			if count < Config.BELT_MAX_WALKING then
 				spawnOne()
-				local record = walking[#walking]
-				if record ~= nil then
-					walkLoop(record)
-				end
 			end
 		end
 	end)
+	RunService.Heartbeat:Connect(moveStep)
 end
 
 return Conveyor

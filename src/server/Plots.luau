@@ -1,96 +1,89 @@
--- Brainrot Bay — base plots.
--- Eight colour-coded pads in two rows. A player owns one plot; each plot
--- holds six brainrots on its six slots. The layout (centres and slot
--- offsets) comes from Config, so the world, the plots and the slot pads
--- can never disagree about where a brainrot stands.
+-- Plots.luau
+-- Base plots for Brainrot Bay (build4, written from scratch).
+-- A plot's colour is read ONLY from Config.PLOT_COLORS, keyed by plot id.
+-- Plots.get() builds a small table { id, center, color } for callers; the
+-- colour there comes from PLOT_COLORS, never from a Config.PLOTS entry.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
-local State = require(script.Parent.State)
+local Config = require(ReplicatedStorage.Shared.Config)
 
 local Plots = {}
 
-export type Plot = {
-	id: number,
-	center: Vector3,
-	color: Color3,
-	owner: Player?,
-	taken: { [number]: number }, -- [slotIndex] = record id
-}
+local claimed = {} -- [plotId] = Player who owns the plot
 
-local plots: { Plot } = {}
-
-function Plots.init()
-	for _, def in ipairs(Config.PLOTS) do
-		plots[def.id] = {
-			id = def.id,
-			center = def.center,
-			color = Config.PLOT_COLORS[def.id],
-			owner = nil,
-			taken = {},
-		}
-	end
-end
-
--- Hands a joining player the first free plot, or nil when all eight are taken.
-function Plots.assign(player: Player): Plot?
-	for _, plot in ipairs(plots) do
-		if plot.owner == nil then
-			plot.owner = player
-			local state = State.get(player)
-			if state ~= nil then
-				state.plotId = plot.id
-			end
-			return plot
+-- First free plot id, or 0 when the island is full.
+function Plots.claim(player)
+	for _, plot in ipairs(Config.PLOTS) do
+		if claimed[plot.id] == nil then
+			claimed[plot.id] = player
+			return plot.id
 		end
 	end
-	return nil
+	return 0
 end
 
--- Frees a leaving player's plot and forgets who owned it.
-function Plots.free(player: Player)
-	local state = State.get(player)
-	if state == nil or state.plotId == nil then
-		return
-	end
-	local plot = plots[state.plotId]
-	if plot ~= nil then
-		plot.owner = nil
+function Plots.release(player)
+	for plotId, owner in pairs(claimed) do
+		if owner == player then
+			claimed[plotId] = nil
+		end
 	end
 end
 
-function Plots.plotOf(player: Player): Plot?
-	local state = State.get(player)
-	if state == nil or state.plotId == nil then
+function Plots.ownerOf(plotId)
+	return claimed[plotId]
+end
+
+function Plots.plotOf(player)
+	for plotId, owner in pairs(claimed) do
+		if owner == player then
+			return plotId
+		end
+	end
+	return 0
+end
+
+-- The plot's description: id, centre and colour (colour from PLOT_COLORS).
+function Plots.get(plotId)
+	local entry = Config.PLOTS[plotId]
+	if entry == nil then
 		return nil
 	end
-	return plots[state.plotId]
+	return {
+		id = entry.id,
+		center = entry.center,
+		color = Config.PLOT_COLORS[entry.id],
+	}
 end
 
-function Plots.get(plotId: number): Plot?
-	return plots[plotId]
+-- World position of one of a plot's six slots (slotIndex 1..6).
+function Plots.slotPosition(plot, slotIndex)
+	local offset = Config.SLOT_OFFSETS[slotIndex]
+	if offset == nil then
+		return plot.center
+	end
+	return plot.center + offset
 end
 
--- The first empty slot on a plot, or nil when the base is full.
-function Plots.freeSlot(plot: Plot): number?
-	for i = 1, #Config.SLOT_OFFSETS do
-		if plot.taken[i] == nil then
-			return i
+-- First empty slot index in a player's plot, or 0 when the plot is full.
+-- `owned` is the player's owned-record table ([recordId] = record).
+function Plots.freeSlot(player, owned)
+	local plotId = Plots.plotOf(player)
+	if plotId == 0 then
+		return 0
+	end
+	local taken = {}
+	for _, record in pairs(owned) do
+		if record.plotId == plotId then
+			taken[record.slot] = true
 		end
 	end
-	return nil
-end
-
--- Where a brainrot stands on its slot: the pad's top, plus its offset.
--- Y sits just above the slot pad so the model's feet rest on the tile.
-function Plots.slotPosition(plot: Plot, slotIndex: number): Vector3
-	local offset = Config.SLOT_OFFSETS[slotIndex]
-	return Vector3.new(plot.center.X + offset.X, 1.6, plot.center.Z + offset.Z)
-end
-
--- Whether a point is on a plot's pad (used to tell a base from open sand).
-function Plots.isOnPlot(plot: Plot, position: Vector3): boolean
-	return math.abs(position.X - plot.center.X) <= 13 and math.abs(position.Z - plot.center.Z) <= 11
+	for slot = 1, #Config.SLOT_OFFSETS do
+		if taken[slot] == nil then
+			return slot
+		end
+	end
+	return 0
 end
 
 return Plots
