@@ -1,8 +1,8 @@
 # Brainrot Bay
 
 [![Brainrot Bay on make.fun](https://make.fun/badge/roblox-brainrot-01.svg)](https://make.fun/bounty/roblox-brainrot-01)
-[![Rank](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/rank.svg)](https://make.fun/bounty/roblox-brainrot-01)
-[![Reward](https://make.fun/badge/roblox-brainrot-01/geishakampret/brainrot-bay/reward.svg)](https://make.fun/bounty/roblox-brainrot-01)
+[![Rank](https://make.fun/badge/roblox-brainrot-01/Hoppererin/brainrot-bay/rank.svg)](https://make.fun/bounty/roblox-brainrot-01)
+[![Reward](https://make.fun/badge/roblox-brainrot-01/Hoppererin/brainrot-bay/reward.svg)](https://make.fun/bounty/roblox-brainrot-01)
 
 A 3D Roblox brainrot game — a Steal-a-Brainrot-style island where brainrots
 walk the conveyor, you click to buy them, they earn cash at your base, and
