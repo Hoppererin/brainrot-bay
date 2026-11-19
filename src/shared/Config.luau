@@ -9,7 +9,7 @@ Config.START_CASH = 150
 Config.PRICE_MULTIPLIER = 25 -- a brainrot costs rate * 25 (cheapest $125 < $150)
 Config.SELL_REFUND = 0.5 -- selling refunds half of the buy price
 Config.INCOME_TICK = 1 -- seconds between income ticks
-Config.REBIRTH_BASE_COST = 250000 -- rebirth n costs base * n
+Config.REBIRTH_BASE_COST = 25000 -- rebirth n costs base * n
 Config.REBIRTH_BONUS = 0.25 -- +25% income per rebirth level
 Config.BASE_WALK_SPEED = 16
 
@@ -23,6 +23,7 @@ Config.BILLBOARD_HEIGHT = 44
 Config.BILLBOARD_NAME_SIZE = 12
 Config.BILLBOARD_RARITY_SIZE = 10
 Config.BILLBOARD_RATE_SIZE = 11
+Config.BILLBOARD_STAGGER = 2.2 -- neighbours alternate label height by this much
 
 -- Conveyor
 Config.CONVEYOR_LENGTH = 150
