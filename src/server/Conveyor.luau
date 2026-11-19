@@ -10,6 +10,7 @@ local Conveyor = {}
 Conveyor.belt = {}
 Conveyor.nextId = 1
 Conveyor.running = false
+Conveyor.staggerNext = 0 -- alternates 0/1 so neighbours' billboards sit at different heights
 
 --- Spawn one brainrot at the portal end of the belt.
 function Conveyor.spawnOne(parent)
@@ -17,7 +18,9 @@ function Conveyor.spawnOne(parent)
 	local mutationName = Catalog.rollMutation()
 	local mult = Catalog.mutationMultiplier(mutationName)
 	local spawnPos = Vector3.new(Config.BELT_MIN_X, Config.BELT_TOP_Y, Config.CONVEYOR_Z)
-	local model = BrainrotFactory.create(charDef, mutationName, spawnPos)
+	local stagger = Conveyor.staggerNext
+	Conveyor.staggerNext = 1 - Conveyor.staggerNext
+	local model = BrainrotFactory.create(charDef, mutationName, spawnPos, stagger)
 	model.Parent = parent
 
 	local id = Conveyor.nextId
