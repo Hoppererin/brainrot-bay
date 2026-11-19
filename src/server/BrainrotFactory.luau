@@ -64,9 +64,31 @@ local function makeAccessory(accessory, size, bodyColor)
 	return parts
 end
 
+--- Two eyes + a mouth on the front (+Z) face of the head, so every
+-- brainrot has a face. Returns a list of {part, offset} pairs; offsets
+-- are relative to the ground `position`, like makeAccessory.
+local function makeFace(size)
+	local parts = {}
+	local faceColor = Color3.fromRGB(20, 20, 20)
+	local frontZ = size * 0.35 + size * 0.03
+	table.insert(parts, {
+		part = makePart("EyeLeft", Vector3.new(size * 0.12, size * 0.16, size * 0.05), faceColor),
+		offset = Vector3.new(-size * 0.16, size * 1.43, frontZ),
+	})
+	table.insert(parts, {
+		part = makePart("EyeRight", Vector3.new(size * 0.12, size * 0.16, size * 0.05), faceColor),
+		offset = Vector3.new(size * 0.16, size * 1.43, frontZ),
+	})
+	table.insert(parts, {
+		part = makePart("Mouth", Vector3.new(size * 0.28, size * 0.08, size * 0.05), faceColor),
+		offset = Vector3.new(0, size * 1.20, frontZ),
+	})
+	return parts
+end
+
 --- Build a brainrot model for a character + mutation, standing at `position`
 -- (the ground position under its feet). Returns the model.
-function BrainrotFactory.create(charDef, mutationName, position)
+function BrainrotFactory.create(charDef, mutationName, position, stagger)
 	local size = charDef.size
 	local bodyColor = charDef.color
 	if mutationName ~= "" then
@@ -92,6 +114,12 @@ function BrainrotFactory.create(charDef, mutationName, position)
 		entry.part.Parent = model
 	end
 
+	local faceParts = makeFace(size)
+	for _, entry in ipairs(faceParts) do
+		entry.part.Position = position + entry.offset
+		entry.part.Parent = model
+	end
+
 	local rarityDef = Catalog.RARITIES[charDef.rarity]
 	local price = Catalog.getPrice(charDef)
 	local mult = Catalog.mutationMultiplier(mutationName)
@@ -103,7 +131,7 @@ function BrainrotFactory.create(charDef, mutationName, position)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "Label"
 	billboard.Size = UDim2.fromOffset(Config.BILLBOARD_WIDTH, Config.BILLBOARD_HEIGHT)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, size + 1.2, 0)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, size + 1.2 + (stagger or 0) * Config.BILLBOARD_STAGGER, 0)
 	billboard.AlwaysOnTop = true
 	billboard.Adornee = body
 	billboard.Parent = body
