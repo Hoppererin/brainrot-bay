@@ -48,6 +48,18 @@ local function upgradeCaption(kind, level)
 	return string.format("%s Lv %d — $%d", upgradeDef.name, level, upgradeDef.costs[level + 1])
 end
 
+--- Format a money amount: $1.23M, $4.5K, or $123.
+-- (The 999950 threshold keeps 999999 from rounding to "$1000.0K".)
+local function formatMoney(amount)
+	if amount >= 999950 then
+		return string.format("$%.2fM", amount / 1000000)
+	elseif amount >= 1000 then
+		return string.format("$%.1fK", amount / 1000)
+	else
+		return string.format("$%d", amount)
+	end
+end
+
 function Hud.start(remotes, player)
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "BrainrotHud"
@@ -62,8 +74,8 @@ function Hud.start(remotes, player)
 	topBar.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 	topBar.BackgroundTransparency = 0.2
 	topBar.Parent = gui
-	local cashLabel = makeLabel(topBar, "CashLabel", "Cash: $150", UDim2.new(0, 10, 0, 0), UDim2.new(0, 130, 1, 0), 16, Color3.fromRGB(255, 255, 120))
-	local incomeLabel = makeLabel(topBar, "IncomeLabel", "$0/s", UDim2.new(0, 145, 0, 0), UDim2.new(0, 110, 1, 0), 16, Color3.fromRGB(140, 255, 140))
+	local cashLabel = makeLabel(topBar, "CashLabel", "Cash: " .. formatMoney(150), UDim2.new(0, 10, 0, 0), UDim2.new(0, 130, 1, 0), 16, Color3.fromRGB(255, 255, 120))
+	local incomeLabel = makeLabel(topBar, "IncomeLabel", formatMoney(0) .. "/s", UDim2.new(0, 145, 0, 0), UDim2.new(0, 110, 1, 0), 16, Color3.fromRGB(140, 255, 140))
 	local rebirthLabel = makeLabel(topBar, "RebirthLabel", "Rebirths: 0", UDim2.new(0, 260, 0, 0), UDim2.new(0, 95, 1, 0), 16, Color3.fromRGB(200, 160, 255))
 
 	-- Event banner, under the top bar.
@@ -142,8 +154,8 @@ function Hud.start(remotes, player)
 	end
 
 	remotes.HudUpdate.OnClientEvent:Connect(function(cash, income, rebirths, speedLevel, incomeLevel)
-		cashLabel.Text = string.format("Cash: $%d", cash)
-		incomeLabel.Text = string.format("$%d/s", income)
+		cashLabel.Text = "Cash: " .. formatMoney(cash)
+		incomeLabel.Text = formatMoney(income) .. "/s"
 		rebirthLabel.Text = string.format("Rebirths: %d", rebirths)
 		Hud.speedLevel = speedLevel or 0
 		Hud.incomeLevel = incomeLevel or 0
